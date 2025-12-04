@@ -90,6 +90,8 @@ const AdminSchedule = () => {
   const [editForm] = Form.useForm();
   const [inlineEditing, setInlineEditing] = useState<{eventKey: string, event: ScheduleEvent} | null>(null);
   const [inlineForm] = Form.useForm();
+  const [draggingEvent, setDraggingEvent] = useState<ScheduleEvent | null>(null);
+  const [dragOverCell, setDragOverCell] = useState<string | null>(null); // "dayIndex_slotIndex"
 
   // Load rooms
   useEffect(() => {
@@ -532,6 +534,112 @@ const AdminSchedule = () => {
     inlineForm.resetFields();
   };
 
+  // ===== DRAG & DROP HANDLERS =====
+  const handleDragStart = (e: React.DragEvent, event: ScheduleEvent) => {
+    setDraggingEvent(event);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", JSON.stringify({
+      classId: event.class.id,
+      date: event.date,
+      scheduleId: event.scheduleId,
+      isCustomSchedule: event.isCustomSchedule,
+      schedule: event.schedule,
+    }));
+    // Make the drag image slightly transparent
+    if (e.currentTarget instanceof HTMLElement) {
+      e.currentTarget.style.opacity = "0.5";
+    }
+  };
+
+  const handleDragEnd = (e: React.DragEvent) => {
+    setDraggingEvent(null);
+    setDragOverCell(null);
+    if (e.currentTarget instanceof HTMLElement) {
+      e.currentTarget.style.opacity = "1";
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent, cellKey: string) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    setDragOverCell(cellKey);
+  };
+
+  const handleDragLeave = () => {
+    setDragOverCell(null);
+  };
+
+  const handleDrop = async (e: React.DragEvent, targetDate: Dayjs) => {
+    e.preventDefault();
+    setDragOverCell(null);
+
+    if (!draggingEvent) return;
+
+    const newDateStr = targetDate.format("YYYY-MM-DD");
+    const oldDateStr = draggingEvent.date;
+
+    // Nếu drop vào cùng ngày thì không làm gì
+    if (newDateStr === oldDateStr) {
+      setDraggingEvent(null);
+      return;
+    }
+
+    const newDayOfWeek = targetDate.day() === 0 ? 8 : targetDate.day() + 1;
+    const oldDayOfWeek = draggingEvent.schedule["Thứ"];
+
+    try {
+      // Chuẩn bị dữ liệu - giữ nguyên giờ, chỉ đổi ngày
+      const timetableData: Omit<TimetableEntry, "id"> = {
+        "Class ID": draggingEvent.class.id,
+        "Mã lớp": draggingEvent.class["Mã lớp"] || "",
+        "Tên lớp": draggingEvent.class["Tên lớp"] || "",
+        "Ngày": newDateStr,
+        "Thứ": newDayOfWeek,
+        "Giờ bắt đầu": draggingEvent.schedule["Giờ bắt đầu"],
+        "Giờ kết thúc": draggingEvent.schedule["Giờ kết thúc"],
+        "Phòng học": draggingEvent.class["Phòng học"] || "",
+      };
+
+      // Nếu đây là lịch mặc định (không phải lịch bù), thêm thông tin ngày gốc bị thay thế
+      if (!draggingEvent.isCustomSchedule) {
+        (timetableData as any)["Thay thế ngày"] = oldDateStr;
+        (timetableData as any)["Thay thế thứ"] = oldDayOfWeek;
+      }
+
+      if (draggingEvent.scheduleId) {
+        // Đang kéo lịch bù - cập nhật hoặc tạo mới tùy vào có thay đổi ngày
+        // Lấy thông tin thay thế cũ nếu có
+        const existingEntry = Array.from(timetableEntries.values()).find(
+          entry => entry.id === draggingEvent.scheduleId
+        );
+        if (existingEntry && existingEntry["Thay thế ngày"]) {
+          (timetableData as any)["Thay thế ngày"] = existingEntry["Thay thế ngày"];
+          (timetableData as any)["Thay thế thứ"] = existingEntry["Thay thế thứ"];
+        }
+
+        // Xóa entry cũ và tạo mới (vì key trong map thay đổi khi đổi ngày)
+        const oldEntryRef = ref(database, `datasheet/Thời_khoá_biểu/${draggingEvent.scheduleId}`);
+        await remove(oldEntryRef);
+
+        const timetableRef = ref(database, "datasheet/Thời_khoá_biểu");
+        const newEntryRef = push(timetableRef);
+        await set(newEntryRef, timetableData);
+      } else {
+        // Đang kéo lịch mặc định - tạo lịch bù mới
+        const timetableRef = ref(database, "datasheet/Thời_khoá_biểu");
+        const newEntryRef = push(timetableRef);
+        await set(newEntryRef, timetableData);
+      }
+
+      message.success(`Đã di chuyển lịch từ ${oldDateStr} sang ${newDateStr}`);
+    } catch (error) {
+      console.error("Error moving schedule:", error);
+      message.error("Có lỗi xảy ra khi di chuyển lịch học");
+    }
+
+    setDraggingEvent(null);
+  };
+
   if (activeClasses.length === 0 && !loading)
     return (
       <div style={{ padding: "24px" }}>
@@ -743,26 +851,37 @@ const AdminSchedule = () => {
                         slot.start,
                         slot.end
                       );
+                      const cellKey = `${dayIndex}_${slotIndex}`;
+                      const isDragOver = dragOverCell === cellKey;
+                      
                       return (
                         <td
                           key={dayIndex}
                           style={{
                             border: "1px solid #f0f0f0",
                             padding: "8px",
-                            backgroundColor: isToday(day) ? "#f6ffed" : "white",
+                            backgroundColor: isDragOver 
+                              ? "#bae7ff" 
+                              : isToday(day) ? "#f6ffed" : "white",
                             verticalAlign: "top",
                             minHeight: "120px",
+                            transition: "background-color 0.2s",
+                            outline: isDragOver ? "2px dashed #1890ff" : "none",
                           }}
+                          onDragOver={(e) => handleDragOver(e, cellKey)}
+                          onDragLeave={handleDragLeave}
+                          onDrop={(e) => handleDrop(e, day)}
                         >
                           {events.length === 0 ? (
                             <div
                               style={{
                                 textAlign: "center",
-                                color: "#ccc",
+                                color: isDragOver ? "#1890ff" : "#ccc",
                                 padding: "20px 0",
+                                fontWeight: isDragOver ? "bold" : "normal",
                               }}
                             >
-                              -
+                              {isDragOver ? "Thả vào đây" : "-"}
                             </div>
                           ) : (
                             <div
@@ -775,18 +894,24 @@ const AdminSchedule = () => {
                               {events.map((event, idx) => {
                                 const eventKey = `${event.class.id}_${event.date}_${event.schedule["Thứ"]}`;
                                 const isEditing = inlineEditing?.eventKey === eventKey;
+                                const isDragging = draggingEvent?.class.id === event.class.id && 
+                                                   draggingEvent?.date === event.date;
                                 
                                 return (
                                 <div
                                   key={idx}
+                                  draggable={!isEditing}
+                                  onDragStart={(e) => handleDragStart(e, event)}
+                                  onDragEnd={handleDragEnd}
                                   style={{
                                     padding: "8px",
                                     backgroundColor: event.isCustomSchedule ? "#e6f7ff" : "#fff7e6",
                                     borderLeft: `3px solid ${event.isCustomSchedule ? "#1890ff" : "#fa8c16"}`,
                                     borderRadius: "4px",
-                                    cursor: "pointer",
+                                    cursor: isEditing ? "default" : "grab",
                                     transition: "all 0.3s",
                                     position: "relative",
+                                    opacity: isDragging ? 0.5 : 1,
                                   }}
                                   onMouseEnter={(e) => {
                                     if (!isEditing) {
