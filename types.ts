@@ -50,6 +50,7 @@ export interface Class {
     "Lịch học": ClassSchedule[]; // Weekly schedule
     "Ngày bắt đầu": string; // Start date
     "Ngày kết thúc": string; // End date
+    "Lương GV"?: number; // Teacher salary (per period or agreed amount)
     "Phòng học"?: string; // Classroom
     "Ghi chú"?: string; // Notes
     "Trạng thái": "active" | "inactive"; // Status

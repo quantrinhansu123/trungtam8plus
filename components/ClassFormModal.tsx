@@ -121,6 +121,7 @@ const ClassFormModal = ({
         subject: editingClass["Môn học"],
         grade: editingClass["Khối"],
         teacherId: editingClass["Teacher ID"],
+        teacherSalary: editingClass["Lương GV"] || 0,
         startDate: editingClass["Ngày bắt đầu"]
           ? dayjs(editingClass["Ngày bắt đầu"])
           : null,
@@ -257,6 +258,7 @@ const ClassFormModal = ({
         "Phòng học": values.roomId || "",
         "Địa điểm": selectedRoom ? `${selectedRoom["Địa điểm"]} - ${selectedRoom["Tên phòng"]}` : "",
         "Học phí mỗi buổi": values.tuitionPerSession || 0,
+        "Lương GV": values.teacherSalary || 0,
         "Ghi chú": values.notes || "",
         "Trạng thái": values.status,
         "Ngày tạo": editingClass?.["Ngày tạo"] || new Date().toISOString(),
@@ -377,7 +379,7 @@ const ClassFormModal = ({
           <Form.Item
             name="endDate"
             label="Ngày kết thúc"
-            rules={[{ required: true, message: "Vui lòng chọn ngày kết thúc" }]}
+            // End date is optional — removed required star per design request
             style={{ flex: 1, minWidth: 200 }}
           >
             <DatePicker
@@ -417,6 +419,24 @@ const ClassFormModal = ({
             min={0}
             step={10000}
             placeholder="Nhập học phí mỗi buổi"
+            style={{ width: "100%" }}
+            formatter={(value) => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+            parser={(value) => {
+              const parsed = value!.replace(/\$\s?|(,*)/g, '');
+              return parsed === '' ? 0 : Number(parsed);
+            }}
+            addonAfter="VNĐ"
+          />
+        </Form.Item>
+
+        <Form.Item
+          name="teacherSalary"
+          label="Lương GV"
+        >
+          <InputNumber<number>
+            min={0}
+            step={10000}
+            placeholder="Nhập lương giáo viên"
             style={{ width: "100%" }}
             formatter={(value) => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
             parser={(value) => {

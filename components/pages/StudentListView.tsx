@@ -3613,7 +3613,6 @@ const StudentTuitionTab: React.FC<{
   const filteredMonthlyStats = useMemo(() => {
     console.log(`📊 Monthly Stats:`, {
       total: monthlyStats.length,
-      selectedMonth: selectedMonth.format("MM/YYYY"),
       statsWithSessions: monthlyStats.filter(s => s.monthSessions > 0).length,
       classFilter: tuitionClassFilter
     });
@@ -3638,9 +3637,8 @@ const StudentTuitionTab: React.FC<{
     if (value === null && field !== "invoiceStatus") return;
     
     try {
-      const month = selectedMonth.month();
-      const year = selectedMonth.year();
-      const invoiceKey = `${record.id}-${month}-${year}`;
+      // Không dùng tháng nữa, dùng record.id làm key
+      const invoiceKey = record.id;
       
       let updateData: any = {};
       

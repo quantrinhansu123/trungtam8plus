@@ -471,6 +471,13 @@ const ClassManagement = () => {
         fee ? `${fee.toLocaleString('vi-VN')} đ` : "-",
     },
     {
+      title: "Lương GV",
+      dataIndex: "Lương GV",
+      key: "salary",
+      width: 140,
+      render: (val: number) => (val ? `${val.toLocaleString('vi-VN')} đ` : "-"),
+    },
+    {
       title: "Lịch học",
       key: "schedule",
       width: 200,
@@ -858,6 +865,9 @@ const ClassManagement = () => {
               </Descriptions.Item>
               <Descriptions.Item label="Giáo viên chủ nhiệm">
                 {viewingClass["Giáo viên chủ nhiệm"]}
+              </Descriptions.Item>
+              <Descriptions.Item label="Lương GV">
+                {viewingClass["Lương GV"] ? `${viewingClass["Lương GV"].toLocaleString('vi-VN')} đ` : "-"}
               </Descriptions.Item>
               <Descriptions.Item label="Lịch học trong tuần">
                 {viewingClass["Lịch học"] && viewingClass["Lịch học"].length > 0 ? (
@@ -1536,6 +1546,11 @@ const GradeReportModal: React.FC<{
           <Col span={6}>
             <div>
               <strong>Giáo viên:</strong> {classData["Giáo viên chủ nhiệm"]}
+            </div>
+          </Col>
+          <Col span={6}>
+            <div>
+              <strong>Lương GV:</strong> {classData["Lương GV"] ? `${classData["Lương GV"].toLocaleString('vi-VN')} đ` : "-"}
             </div>
           </Col>
           <Col span={6}>
