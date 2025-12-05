@@ -457,7 +457,6 @@ const ClassSessionHistory = () => {
       render: (_: any, record: AttendanceRecord) => (
         <InputNumber
           min={0}
-          max={5}
           step={1}
           value={record["Điểm thưởng"] ?? null}
           onChange={(value) =>

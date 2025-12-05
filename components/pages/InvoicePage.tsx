@@ -155,6 +155,8 @@ const InvoicePage = () => {
   const [editDiscount, setEditDiscount] = useState<number>(0);
   const [editInvoiceModalOpen, setEditInvoiceModalOpen] =
     useState<boolean>(false);
+  // State to track individual session prices when editing
+  const [editSessionPrices, setEditSessionPrices] = useState<{ [sessionId: string]: number }>({});
 
   // Teacher salary filters
   const [teacherSearchTerm, setTeacherSearchTerm] = useState("");
@@ -185,6 +187,7 @@ const InvoicePage = () => {
           paidAt?: string;
           sessions?: any[];
           invoiceImage?: string;
+          sessionPrices?: { [sessionId: string]: number }; // Custom prices per session
         }
       | "paid"
       | "unpaid"
@@ -543,8 +546,17 @@ const InvoicePage = () => {
           };
         }
 
+        // Check if there's a custom price saved for this session
+        const invoiceData = studentInvoiceStatus[key];
+        const savedSessionPrices = typeof invoiceData === "object" && invoiceData !== null 
+          ? invoiceData.sessionPrices 
+          : null;
+        const sessionPrice = savedSessionPrices && savedSessionPrices[session.id] !== undefined
+          ? savedSessionPrices[session.id]
+          : pricePerSession;
+
         invoicesMap[key].totalSessions++;
-        invoicesMap[key].totalAmount += pricePerSession;
+        invoicesMap[key].totalAmount += sessionPrice;
         invoicesMap[key].sessions.push(session);
         
         if (invoicesMap[key].totalSessions === 1) {
@@ -698,8 +710,17 @@ const InvoicePage = () => {
         );
         
         if (!alreadyCounted) {
+          // Check if there's a custom price saved for this session
+          const invoiceData = studentInvoiceStatus[key];
+          const savedSessionPrices = typeof invoiceData === "object" && invoiceData !== null 
+            ? invoiceData.sessionPrices 
+            : null;
+          const sessionPrice = savedSessionPrices && savedSessionPrices[pseudoSession.id] !== undefined
+            ? savedSessionPrices[pseudoSession.id]
+            : pricePerSession;
+
           invoicesMap[key].totalSessions++;
-          invoicesMap[key].totalAmount += pricePerSession;
+          invoicesMap[key].totalAmount += sessionPrice;
           invoicesMap[key].sessions.push(pseudoSession);
           
           if (invoicesMap[key].totalSessions === 1) {
@@ -1125,6 +1146,69 @@ const InvoicePage = () => {
         }
       },
     });
+  };
+
+  // Helper function to get price for a session
+  const getSessionPrice = (session: AttendanceSession): number => {
+    const classId = session["Class ID"];
+    const classInfo = classes.find((c) => c.id === classId);
+    
+    if (!classInfo) return 0;
+    
+    const course = courses.find((c) => {
+      if (c.Khối !== classInfo.Khối) return false;
+      const classSubject = classInfo["Môn học"];
+      const courseSubject = c["Môn học"];
+      if (classSubject === courseSubject) return true;
+      const subjectOption = subjectOptions.find(
+        (opt) => opt.label === classSubject || opt.value === classSubject
+      );
+      if (subjectOption) {
+        return courseSubject === subjectOption.label || courseSubject === subjectOption.value;
+      }
+      return false;
+    });
+    
+    return course?.Giá || classInfo?.["Học phí mỗi buổi"] || 0;
+  };
+
+  // Update invoice with custom session prices
+  const updateStudentInvoiceWithSessionPrices = async (
+    invoiceId: string,
+    sessionPrices: { [sessionId: string]: number },
+    discount: number
+  ) => {
+    try {
+      const currentData = studentInvoiceStatus[invoiceId];
+      const currentStatus =
+        typeof currentData === "object" ? currentData.status : currentData;
+
+      if (currentStatus === "paid") {
+        message.error("Không thể cập nhật phiếu đã thanh toán.");
+        return;
+      }
+
+      // Calculate new total from session prices
+      const newTotalAmount = Object.values(sessionPrices).reduce((sum, price) => sum + price, 0);
+      const newFinalAmount = Math.max(0, newTotalAmount - discount);
+
+      const invoiceRef = ref(database, `datasheet/Phiếu_thu_học_phí/${invoiceId}`);
+      
+      const updateData = {
+        ...(typeof currentData === "object" ? currentData : { status: currentStatus || "unpaid" }),
+        discount,
+        sessionPrices, // Store custom prices
+        totalAmount: newTotalAmount,
+        finalAmount: newFinalAmount,
+      };
+
+      await update(invoiceRef, updateData);
+      message.success("Đã cập nhật phiếu thu học phí");
+      setRefreshTrigger((prev) => prev + 1);
+    } catch (error) {
+      console.error("Error updating invoice:", error);
+      message.error("Lỗi khi cập nhật phiếu thu");
+    }
   };
 
   // Update discount
@@ -1599,9 +1683,9 @@ const InvoicePage = () => {
               </tr>`
               )
               .join("")}
-            <tr style="font-weight:700; background:#fafafa;">
-              <td style="padding:8px;" colSpan="4">Tổng tháng ${invoice.month + 1}</td>
-              <td style="padding:8px; text-align:right;">${currentMonthTotal.toLocaleString("vi-VN")} đ</td>
+            <tr style="font-weight:700; background:#fff2f0; color:#c40000;">
+              <td style="padding:10px; font-size:15px;" colSpan="4">Tổng tháng ${invoice.month + 1}</td>
+              <td style="padding:10px; text-align:right; font-size:15px;">${currentMonthTotal.toLocaleString("vi-VN")} đ</td>
             </tr>
           </tbody>
         </table>
@@ -1640,7 +1724,10 @@ const InvoicePage = () => {
 
               ${debtDetailsHtml}
               ${currentMonthHtml}
-              <p style="margin:6px 0;"><strong>Tổng phải thu (Nợ trước + Tháng ${invoice.month + 1}):</strong> ${combinedTotalDue.toLocaleString("vi-VN")} đ</p>
+              <div style="margin:16px 0; padding:12px 16px; border:2px solid #c40000; border-radius:8px;">
+                <p style="margin:0; color:#c40000; font-size:18px; font-weight:700; text-align:center;">TỔNG PHẢI THU (Nợ trước + Tháng ${invoice.month + 1})</p>
+                <p style="margin:6px 0 0 0; color:#c40000; font-size:26px; font-weight:700; text-align:center;">${combinedTotalDue.toLocaleString("vi-VN")} đ</p>
+              </div>
               <p style="margin-top: 12px;"><strong>Ghi chú:</strong> ${(invoice as any).note || ""}</p>
 
               <div style="margin-top: 18px; font-size: 13px; color: #222; line-height: 1.4;">
@@ -2288,6 +2375,20 @@ const InvoicePage = () => {
                 }
                 setEditingInvoice(record);
                 setEditDiscount(record.discount || 0);
+                
+                // Initialize session prices from saved data or calculate from default
+                const invoiceData = studentInvoiceStatus[record.id];
+                const savedSessionPrices = typeof invoiceData === "object" ? invoiceData.sessionPrices : null;
+                
+                const initialPrices: { [sessionId: string]: number } = {};
+                record.sessions.forEach((session: AttendanceSession) => {
+                  if (savedSessionPrices && savedSessionPrices[session.id] !== undefined) {
+                    initialPrices[session.id] = savedSessionPrices[session.id];
+                  } else {
+                    initialPrices[session.id] = getSessionPrice(session);
+                  }
+                });
+                setEditSessionPrices(initialPrices);
                 setEditInvoiceModalOpen(true);
               }}
               disabled={record.status === "paid"}
@@ -3014,46 +3115,114 @@ const InvoicePage = () => {
       {/* Image Preview Modal */}
       {/* Edit Invoice Modal (restore) */}
       <Modal
-        title="Chỉnh sửa miễn giảm học phí"
+        title="Chỉnh sửa phiếu thu học phí"
         open={editInvoiceModalOpen}
+        width={700}
         onCancel={() => {
           setEditInvoiceModalOpen(false);
           setEditingInvoice(null);
           setEditDiscount(0);
+          setEditSessionPrices({});
         }}
         onOk={async () => {
           if (!editingInvoice) return;
-          await updateStudentDiscount(editingInvoice.id, editDiscount);
+          await updateStudentInvoiceWithSessionPrices(
+            editingInvoice.id,
+            editSessionPrices,
+            editDiscount
+          );
           setEditInvoiceModalOpen(false);
           setEditingInvoice(null);
           setEditDiscount(0);
+          setEditSessionPrices({});
         }}
         okText="Lưu"
         cancelText="Hủy"
       >
         {editingInvoice && (
-          <Space direction="vertical" style={{ width: "100%" }} size="large">
-            <div>
-              <Text strong>Học sinh: </Text>
-              <Text>{editingInvoice.studentName}</Text>
-            </div>
-            <div>
-              <Text strong>Tháng: </Text>
-              <Text>{`${editingInvoice.month + 1}/${editingInvoice.year}`}</Text>
-            </div>
-            <div>
-              <Text strong>Số buổi: </Text>
-              <Text>{editingInvoice.totalSessions} buổi</Text>
-            </div>
-            <div>
-              <Text strong>Học phí (Tổng): </Text>
-              <Text style={{ color: "#36797f" }}>
-                {editingInvoice.totalAmount.toLocaleString("vi-VN")} đ
-              </Text>
-            </div>
+          <Space direction="vertical" style={{ width: "100%" }} size="middle">
+            <Row gutter={16}>
+              <Col span={12}>
+                <Text strong>Học sinh: </Text>
+                <Text>{editingInvoice.studentName}</Text>
+              </Col>
+              <Col span={12}>
+                <Text strong>Tháng: </Text>
+                <Text>{`${editingInvoice.month + 1}/${editingInvoice.year}`}</Text>
+              </Col>
+            </Row>
 
             <div>
-              <Text strong className="block mb-2">
+              <Text strong style={{ display: "block", marginBottom: 8 }}>
+                Chi tiết từng buổi học ({editingInvoice.sessions.length} buổi):
+              </Text>
+              <div style={{ maxHeight: 300, overflowY: "auto", border: "1px solid #d9d9d9", borderRadius: 6 }}>
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr style={{ backgroundColor: "#fafafa", position: "sticky", top: 0 }}>
+                      <th style={{ padding: "8px 12px", textAlign: "left", borderBottom: "1px solid #d9d9d9" }}>STT</th>
+                      <th style={{ padding: "8px 12px", textAlign: "left", borderBottom: "1px solid #d9d9d9" }}>Ngày</th>
+                      <th style={{ padding: "8px 12px", textAlign: "left", borderBottom: "1px solid #d9d9d9" }}>Lớp</th>
+                      <th style={{ padding: "8px 12px", textAlign: "right", borderBottom: "1px solid #d9d9d9" }}>Học phí (đ)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {editingInvoice.sessions
+                      .sort((a, b) => new Date(a["Ngày"]).getTime() - new Date(b["Ngày"]).getTime())
+                      .map((session: AttendanceSession, index: number) => (
+                        <tr key={session.id} style={{ borderBottom: "1px solid #f0f0f0" }}>
+                          <td style={{ padding: "8px 12px" }}>{index + 1}</td>
+                          <td style={{ padding: "8px 12px" }}>
+                            {dayjs(session["Ngày"]).format("DD/MM/YYYY")}
+                          </td>
+                          <td style={{ padding: "8px 12px" }}>
+                            {session["Tên lớp"] || session["Mã lớp"]}
+                          </td>
+                          <td style={{ padding: "8px 12px", textAlign: "right" }}>
+                            <InputNumber
+                              size="small"
+                              min={0}
+                              value={editSessionPrices[session.id] ?? 0}
+                              onChange={(value) => {
+                                setEditSessionPrices((prev) => ({
+                                  ...prev,
+                                  [session.id]: value || 0,
+                                }));
+                              }}
+                              formatter={(value) =>
+                                `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ",")
+                              }
+                              parser={(value) =>
+                                Number(value!.replace(/\$\s?|(,*)/g, ""))
+                              }
+                              style={{ width: 120 }}
+                            />
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <Row gutter={16}>
+              <Col span={12}>
+                <Text strong>Tổng học phí: </Text>
+                <Text style={{ color: "#36797f", fontSize: 15 }}>
+                  {Object.values(editSessionPrices)
+                    .reduce((sum, price) => sum + price, 0)
+                    .toLocaleString("vi-VN")}{" "}
+                  đ
+                </Text>
+              </Col>
+              <Col span={12}>
+                <Text strong>Số buổi: </Text>
+                <Text>{editingInvoice.sessions.length} buổi</Text>
+              </Col>
+            </Row>
+
+            <div>
+              <Text strong style={{ display: "block", marginBottom: 4 }}>
                 Miễn giảm học phí:
               </Text>
               <InputNumber
@@ -3066,17 +3235,17 @@ const InvoicePage = () => {
                 parser={(value) => Number(value!.replace(/\$\s?|(,*)/g, ""))}
                 addonAfter="đ"
                 min={0}
-                max={editingInvoice.totalAmount}
+                max={Object.values(editSessionPrices).reduce((sum, price) => sum + price, 0)}
                 placeholder="Nhập số tiền miễn giảm"
               />
             </div>
 
-            <div>
-              <Text strong>Phải thu: </Text>
-              <Text strong style={{ color: "#1890ff", fontSize: "16px" }}>
+            <div style={{ backgroundColor: "#f6ffed", padding: "12px 16px", borderRadius: 6, border: "1px solid #b7eb8f" }}>
+              <Text strong style={{ fontSize: 16 }}>Phải thu: </Text>
+              <Text strong style={{ color: "#52c41a", fontSize: 18 }}>
                 {Math.max(
                   0,
-                  editingInvoice.totalAmount - editDiscount
+                  Object.values(editSessionPrices).reduce((sum, price) => sum + price, 0) - editDiscount
                 ).toLocaleString("vi-VN")}{" "}
                 đ
               </Text>
