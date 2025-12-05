@@ -899,7 +899,6 @@ const AttendanceSessionPage = () => {
         return (
           <InputNumber
             min={0}
-            max={5}
             step={1}
             placeholder="Điểm"
             value={attendanceRecord?.["Điểm thưởng"] ?? null}
