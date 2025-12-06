@@ -363,6 +363,10 @@ const StudentReport = ({
           const testName = studentRecord["Bài kiểm tra"] || "-";
           const score = studentRecord["Điểm kiểm tra"] ?? studentRecord["Điểm"] ?? "-";
           const bonusScore = studentRecord["Điểm thưởng"] ?? "-";
+          const completed = studentRecord["Bài tập hoàn thành"];
+          const total = session["Bài tập"]?.["Tổng số bài"];
+          const homework = (completed !== undefined && total) ? `${completed}/${total}` : "-";
+          const note = studentRecord["Ghi chú"] || "-";
 
           tableRows += `
             <tr>
@@ -372,6 +376,8 @@ const StudentReport = ({
               <td style="text-align: left; font-size: 11px;">${testName}</td>
               <td style="text-align: center; font-weight: bold;">${score}</td>
               <td style="text-align: center;">${bonusScore}</td>
+              <td style="text-align: center;">${homework}</td>
+              <td style="text-align: left; font-size: 10px;">${note}</td>
             </tr>
           `;
         }
@@ -388,10 +394,12 @@ const StudentReport = ({
               <tr>
                 <th style="width: 50px;">Ngày</th>
                 <th style="width: 60px;">Chuyên cần</th>
-                <th style="width: 60px;">% BTVN</th>
-                <th style="width: 120px;">Tên bài KT</th>
-                <th style="width: 50px;">Điểm</th>
-                <th style="width: 70px;">Điểm thưởng</th>
+                <th style="width: 55px;">% BTVN</th>
+                <th style="width: 110px;">Tên bài KT</th>
+                <th style="width: 45px;">Điểm</th>
+                <th style="width: 60px;">Điểm thưởng</th>
+                <th style="width: 55px;">Bài tập</th>
+                <th>Ghi chú</th>
               </tr>
             </thead>
             <tbody>
@@ -408,109 +416,261 @@ const StudentReport = ({
       `;
     });
 
+    // Get unique classes for this month
+    const uniqueClasses = Array.from(
+      new Set(filteredSessions.map((s) => s["Tên lớp"] || ""))
+    ).filter((name) => name);
+
+    // Generate history table
+    let historyTableRows = "";
+    filteredSessions.forEach((session) => {
+      const studentRecord = session["Điểm danh"]?.find(
+        (r) => r["Student ID"] === student.id
+      );
+      if (studentRecord) {
+        const date = dayjs(session["Ngày"]).format("DD/MM/YYYY");
+        const className = session["Tên lớp"] || "-";
+        const timeRange = `${session["Giờ bắt đầu"]} - ${session["Giờ kết thúc"]}`;
+        const statusText = getStatusText(studentRecord);
+        const statusColor = getStatusColor(studentRecord);
+        const score = studentRecord["Điểm kiểm tra"] ?? studentRecord["Điểm"] ?? "-";
+        const testName = studentRecord["Bài kiểm tra"] || "-";
+        const note = studentRecord["Ghi chú"] || "-";
+
+        historyTableRows += `
+          <tr>
+            <td style="text-align: center;">${date}</td>
+            <td style="text-align: left;">${className}</td>
+            <td style="text-align: center;">${timeRange}</td>
+            <td style="text-align: center; color: ${statusColor}; font-weight: 500;">${statusText}</td>
+            <td style="text-align: center; font-weight: bold;">${score}</td>
+            <td style="text-align: left; font-size: 11px;">${testName}</td>
+            <td style="text-align: left; font-size: 10px;">${note}</td>
+          </tr>
+        `;
+      }
+    });
+
     return `
-      <div class="report-header">
-        <h1>BÁO CÁO HỌC TẬP THÁNG ${selectedMonth?.format("MM/YYYY") || ""}</h1>
-        <p>Ngày xuất: ${dayjs().format("DD/MM/YYYY HH:mm")}</p>
-      </div>
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="UTF-8" />
+          <title>Báo cáo học tập - ${student["Họ và tên"]}</title>
+          <style>
+            @page { size: A4; margin: 15mm; }
+            body {
+              font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+              color: #333;
+              line-height: 1.5;
+              background: #fff;
+              font-size: 12px;
+            }
+            .watermark-container { position: relative; }
+            .watermark-logo {
+              position: absolute; 
+              top: 50%; 
+              left: 50%;
+              transform: translate(-50%, -50%);
+              z-index: 0; 
+              pointer-events: none;
+            }
+            .watermark-logo img {
+              width: 600px; height: 600px;
+              max-width: 80vw;
+              object-fit: contain; opacity: 0.22; filter: grayscale(25%);
+            }
+            .report-content { position: relative; z-index: 1; }
+            .header {
+              text-align: center;
+              border-bottom: 3px solid #004aad;
+              padding-bottom: 12px;
+              margin-bottom: 20px;
+            }
+            .header h1 {
+              color: #004aad;
+              font-size: 22px;
+              margin: 0;
+              text-transform: uppercase;
+              letter-spacing: 1px;
+            }
+            .header p { color: #666; margin: 5px 0 0; font-size: 12px; }
+            .section { margin-bottom: 18px; }
+            .section-title {
+              font-weight: bold;
+              color: #004aad;
+              border-left: 4px solid #004aad;
+              padding-left: 10px;
+              margin-bottom: 10px;
+              font-size: 14px;
+              text-transform: uppercase;
+            }
+            table { width: 100%; border-collapse: collapse; font-size: 12px; }
+            th, td { border: 1px solid #ccc; padding: 6px 8px; }
+            th { background-color: #004aad; color: #fff; text-align: center; font-weight: 600; }
+            tr:nth-child(even) { background-color: #f8f9fa; }
+            .info-table th { background: #f0f0f0; color: #333; text-align: left; width: 130px; }
+            .stats-grid {
+              display: grid;
+              grid-template-columns: repeat(5, 1fr);
+              gap: 10px;
+              margin-top: 10px;
+            }
+            .stat-card {
+              border: 1px solid #ddd;
+              border-radius: 6px;
+              padding: 10px;
+              text-align: center;
+              background: #fafafa;
+            }
+            .stat-value { font-size: 20px; font-weight: bold; color: #004aad; }
+            .stat-label { color: #666; font-size: 11px; margin-top: 3px; }
+            .subject-section { margin-bottom: 15px; }
+            .subject-header {
+              background: linear-gradient(135deg, #e6f7ff 0%, #bae7ff 100%);
+              padding: 8px 12px;
+              border-left: 4px solid #1890ff;
+              border-radius: 4px;
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              margin-bottom: 6px;
+            }
+            .subject-name { font-weight: bold; font-size: 13px; color: #004aad; }
+            .subject-avg { font-size: 12px; color: #666; }
+            .score-table th { background-color: #f5f5f5; color: #333; font-size: 11px; }
+            .score-table td { font-size: 11px; }
+            .history-table { margin-top: 10px; }
+            .history-table th { background-color: #004aad; color: #fff; font-size: 11px; }
+            .history-table td { font-size: 11px; }
+            .subject-comment {
+              margin-top: 8px;
+              padding: 10px 12px;
+              background: rgba(240, 250, 235, 0.4);
+              border-left: 3px solid rgba(82, 196, 26, 0.7);
+              border-radius: 4px;
+            }
+            .subject-comment .comment-label {
+              font-weight: bold;
+              color: #389e0d;
+              margin-bottom: 5px;
+              font-size: 12px;
+            }
+            .subject-comment .comment-content {
+              color: #333;
+              font-size: 12px;
+              line-height: 1.6;
+            }
+            .footer {
+              margin-top: 30px;
+              text-align: center;
+              color: #888;
+              font-size: 11px;
+              border-top: 1px solid #ccc;
+              padding-top: 10px;
+            }
+            .classes-list {
+              display: flex;
+              flex-wrap: wrap;
+              gap: 5px;
+              margin-top: 5px;
+            }
+            .class-tag {
+              background: #e6f7ff;
+              color: #1890ff;
+              padding: 2px 8px;
+              border-radius: 4px;
+              font-size: 11px;
+            }
+            @media print { 
+              body { margin: 0; } 
+              .no-print { display: none; }
+              .watermark-logo {
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                z-index: 0;
+                pointer-events: none;
+              }
+              .watermark-logo img {
+                width: 650px;
+                height: 650px;
+                opacity: 0.25;
+                filter: grayscale(25%);
+              }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="watermark-container">
+            <div class="watermark-logo">
+              <img src="/img/logo.png" alt="Background Logo" />
+            </div>
+            <div class="report-content">
+              <div class="header">
+                <h1>BÁO CÁO HỌC TẬP THÁNG ${selectedMonth?.format("MM/YYYY") || ""}</h1>
+                <p>Ngày xuất: ${dayjs().format("DD/MM/YYYY HH:mm")}</p>
+              </div>
 
-      <div class="section">
-        <div class="section-title">Thông tin học sinh</div>
-        <table>
-          <tr><th>Họ và tên</th><td>${student["Họ và tên"]}</td></tr>
-          <tr><th>Mã học sinh</th><td>${student["Mã học sinh"] || "-"}</td></tr>
-          <tr><th>Ngày sinh</th><td>${student["Ngày sinh"] ? dayjs(student["Ngày sinh"]).format("DD/MM/YYYY") : "-"}</td></tr>
-          <tr><th>Số điện thoại</th><td>${student["Số điện thoại"] || "-"}</td></tr>
-          <tr><th>Email</th><td>${student["Email"] || "-"}</td></tr>
-          <tr><th>Địa chỉ</th><td>${student["Địa chỉ"] || "-"}</td></tr>
-        </table>
-      </div>
+              <div class="section">
+                <div class="section-title">Thông tin học sinh</div>
+                <table class="info-table">
+                  <tr><th>Họ và tên</th><td><strong>${student["Họ và tên"]}</strong></td></tr>
+                  <tr><th>Mã học sinh</th><td>${student["Mã học sinh"] || "-"}</td></tr>
+                  <tr><th>Ngày sinh</th><td>${student["Ngày sinh"] ? dayjs(student["Ngày sinh"]).format("DD/MM/YYYY") : "-"}</td></tr>
+                  <tr>
+                    <th>Các lớp đang học</th>
+                    <td>
+                      <div class="classes-list">
+                        ${uniqueClasses.map((name: string) => `<span class="class-tag">${name}</span>`).join("")}
+                      </div>
+                    </td>
+                  </tr>
+                  <tr><th>Số điện thoại</th><td>${student["Số điện thoại"] || "-"}</td></tr>
+                  <tr><th>Email</th><td>${student["Email"] || "-"}</td></tr>
+                </table>
+              </div>
 
-      <div class="section">
-        <div class="section-title">Thống kê tháng ${selectedMonth?.format("MM/YYYY") || ""}</div>
-        <div class="stats-grid">
-          <div class="stat-card">
-            <div class="stat-value">${filteredSessions.length}</div>
-            <div class="stat-label">Tổng số buổi</div>
+              <div class="section">
+                <div class="section-title">Thống kê tháng ${selectedMonth?.format("MM/YYYY") || ""}</div>
+                <div class="stats-grid">
+                  <div class="stat-card">
+                    <div class="stat-value">${filteredSessions.length}</div>
+                    <div class="stat-label">Tổng số buổi</div>
+                  </div>
+                  <div class="stat-card">
+                    <div class="stat-value" style="color: #52c41a;">${presentCount}</div>
+                    <div class="stat-label">Số buổi có mặt</div>
+                  </div>
+                  <div class="stat-card">
+                    <div class="stat-value" style="color: #ff4d4f;">${absentCount}</div>
+                    <div class="stat-label">Số buổi vắng</div>
+                  </div>
+                  <div class="stat-card">
+                    <div class="stat-value" style="color: #1890ff;">${attendanceRate}%</div>
+                    <div class="stat-label">Tỷ lệ tham gia</div>
+                  </div>
+                  <div class="stat-card">
+                    <div class="stat-value" style="color: #722ed1;">${avgScore}</div>
+                    <div class="stat-label">Điểm trung bình</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="section">
+                <div class="section-title">Bảng điểm theo môn</div>
+                ${scoreTablesHTML || '<p style="color: #999; text-align: center;">Không có dữ liệu điểm trong tháng này</p>'}
+              </div>
+
+              <div class="footer">
+                <p>Báo cáo được tạo tự động từ hệ thống quản lý học sinh.</p>
+                <p style="margin-top: 5px;">Mọi thắc mắc xin liên hệ giáo viên phụ trách.</p>
+              </div>
+            </div>
           </div>
-          <div class="stat-card">
-            <div class="stat-value">${presentCount}</div>
-            <div class="stat-label">Số buổi có mặt</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-value">${absentCount}</div>
-            <div class="stat-label">Số buổi vắng</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-value">${attendanceRate}%</div>
-            <div class="stat-label">Tỷ lệ tham gia</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-value">${avgScore} / 10</div>
-            <div class="stat-label">Điểm trung bình</div>
-          </div>
-        </div>
-      </div>
-
-      <div class="section">
-        <div class="section-title">Bảng điểm theo môn</div>
-        ${scoreTablesHTML || '<p style="color: #999; text-align: center;">Không có dữ liệu điểm trong tháng này</p>'}
-      </div>
-
-      <div class="section">
-        <div class="section-title">Lịch sử học tập chi tiết</div>
-        <table>
-          <thead>
-            <tr>
-              <th style="width: 80px;">Ngày</th>
-              <th>Lớp học</th>
-              <th style="width: 100px;">Giờ học</th>
-              <th style="width: 100px;">Trạng thái</th>
-              <th style="width: 60px;">Điểm</th>
-              <th style="width: 80px;">Bài tập</th>
-              <th>Ghi chú</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${filteredSessions
-              .map((session) => {
-                const studentRecord = session["Điểm danh"]?.find(
-                  (r) => r["Student ID"] === student.id
-                );
-                const completed = studentRecord?.["Bài tập hoàn thành"];
-                const total = session["Bài tập"]?.["Tổng số bài"];
-                const homework =
-                  completed !== undefined && total
-                    ? `${completed}/${total}`
-                    : "-";
-                const statusText = studentRecord
-                  ? getStatusText(studentRecord)
-                  : "-";
-                const statusColor = studentRecord
-                  ? getStatusColor(studentRecord)
-                  : "#999";
-
-                return `
-              <tr>
-                <td style="text-align: center;">${dayjs(session["Ngày"]).format("DD/MM/YYYY")}</td>
-                <td>${session["Tên lớp"]}</td>
-                <td style="text-align: center;">${session["Giờ bắt đầu"]} - ${session["Giờ kết thúc"]}</td>
-                <td style="text-align: center; color: ${statusColor}; font-weight: bold;">${statusText}</td>
-                <td style="text-align: center; font-weight: bold;">${studentRecord?.["Điểm"] ?? "-"}</td>
-                <td style="text-align: center;">${homework}</td>
-                <td>${studentRecord?.["Ghi chú"] || "-"}</td>
-              </tr>
-            `;
-              })
-              .join("")}
-          </tbody>
-        </table>
-      </div>
-
-      <div class="footer">
-        <p>Báo cáo được tạo tự động từ hệ thống quản lý học sinh.</p>
-        <p>Mọi thắc mắc xin liên hệ giáo viên phụ trách.</p>
-      </div>
+        </body>
+      </html>
     `;
   };
 
@@ -520,7 +680,7 @@ const StudentReport = ({
       if (record["Có mặt"]) {
         return record["Đi muộn"] ? "Đi muộn" : "Có mặt";
       } else {
-        return record["Vắng có phép"] ? "Vắng có phép" : "Vắng không phép";
+        return record["Vắng có phép"] ? "Vắng có phép" : "Vắng";
       }
     };
 
@@ -547,104 +707,336 @@ const StudentReport = ({
         ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1)
         : "0";
 
-    return `
-      <div class="report-header">
-        <h1>BÁO CÁO CHI TIẾT THEO BUỔI HỌC</h1>
-        <p>Ngày xuất: ${dayjs().format("DD/MM/YYYY HH:mm")}</p>
-      </div>
+    // Get unique classes
+    const uniqueClasses = Array.from(
+      new Set(studentSessions.map((s) => s["Tên lớp"] || ""))
+    ).filter((name) => name);
 
-      <div class="section">
-        <div class="section-title">Thông tin học sinh</div>
-        <table>
-          <tr><th>Họ và tên</th><td>${student["Họ và tên"]}</td></tr>
-          <tr><th>Mã học sinh</th><td>${student["Mã học sinh"] || "-"}</td></tr>
-          <tr><th>Ngày sinh</th><td>${student["Ngày sinh"] ? dayjs(student["Ngày sinh"]).format("DD/MM/YYYY") : "-"}</td></tr>
-          <tr><th>Số điện thoại</th><td>${student["Số điện thoại"] || "-"}</td></tr>
-          <tr><th>Email</th><td>${student["Email"] || "-"}</td></tr>
-          <tr><th>Địa chỉ</th><td>${student["Địa chỉ"] || "-"}</td></tr>
-        </table>
-      </div>
+    // Generate score tables by subject (same as monthly report)
+    const sessionsBySubject: { [subject: string]: AttendanceSession[] } = {};
+    studentSessions.forEach((session) => {
+      const subject = session["Tên lớp"]?.split(" - ")[0] || "Chưa phân loại";
+      if (!sessionsBySubject[subject]) {
+        sessionsBySubject[subject] = [];
+      }
+      sessionsBySubject[subject].push(session);
+    });
 
-      <div class="section">
-        <div class="section-title">Thống kê tổng quan</div>
-        <div class="stats-grid">
-          <div class="stat-card">
-            <div class="stat-value">${stats.totalSessions}</div>
-            <div class="stat-label">Tổng số buổi</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-value">${stats.presentSessions}</div>
-            <div class="stat-label">Số buổi có mặt</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-value">${stats.absentSessions}</div>
-            <div class="stat-label">Số buổi vắng</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-value">${attendanceRate}%</div>
-            <div class="stat-label">Tỷ lệ tham gia</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-value">${averageScore} / 10</div>
-            <div class="stat-label">Điểm trung bình</div>
-          </div>
-        </div>
-      </div>
+    let scoreTablesHTML = "";
+    Object.entries(sessionsBySubject).forEach(([subject, subjectSessions]) => {
+      const sortedSessions = [...subjectSessions].sort(
+        (a, b) => new Date(a["Ngày"]).getTime() - new Date(b["Ngày"]).getTime()
+      );
 
-      <div class="section">
-        <div class="section-title">Lịch sử học tập chi tiết</div>
-        <table>
-          <thead>
+      // Calculate subject average
+      let subjectScores: number[] = [];
+      sortedSessions.forEach((session) => {
+        const record = session["Điểm danh"]?.find(r => r["Student ID"] === student.id);
+        if (record?.["Điểm"] !== null && record?.["Điểm"] !== undefined) {
+          subjectScores.push(record["Điểm"]);
+        }
+      });
+      const subjectAvg = subjectScores.length > 0 
+        ? (subjectScores.reduce((a, b) => a + b, 0) / subjectScores.length).toFixed(1)
+        : "-";
+
+      let tableRows = "";
+      sortedSessions.forEach((session) => {
+        const studentRecord = session["Điểm danh"]?.find(
+          (r) => r["Student ID"] === student.id
+        );
+        
+        if (studentRecord) {
+          const date = dayjs(session["Ngày"]).format("DD/MM");
+          const attendance = studentRecord["Có mặt"] 
+            ? (studentRecord["Đi muộn"] ? "Muộn" : "✓")
+            : (studentRecord["Vắng có phép"] ? "P" : "✗");
+          const attendanceColor = studentRecord["Có mặt"] 
+            ? (studentRecord["Đi muộn"] ? "#fa8c16" : "#52c41a")
+            : (studentRecord["Vắng có phép"] ? "#1890ff" : "#f5222d");
+          const homeworkPercent = studentRecord["% Hoàn thành BTVN"] ?? "-";
+          const testName = studentRecord["Bài kiểm tra"] || "-";
+          const score = studentRecord["Điểm kiểm tra"] ?? studentRecord["Điểm"] ?? "-";
+          const bonusScore = studentRecord["Điểm thưởng"] ?? "-";
+          const completed = studentRecord["Bài tập hoàn thành"];
+          const total = session["Bài tập"]?.["Tổng số bài"];
+          const homework = (completed !== undefined && total) ? `${completed}/${total}` : "-";
+          const note = studentRecord["Ghi chú"] || "-";
+
+          tableRows += `
             <tr>
-              <th style="width: 80px;">Ngày</th>
-              <th>Lớp học</th>
-              <th style="width: 100px;">Giờ học</th>
-              <th style="width: 100px;">Trạng thái</th>
-              <th style="width: 60px;">Điểm</th>
-              <th style="width: 80px;">Bài tập</th>
-              <th>Ghi chú</th>
+              <td style="text-align: center;">${date}</td>
+              <td style="text-align: center; color: ${attendanceColor}; font-weight: bold;">${attendance}</td>
+              <td style="text-align: center;">${homeworkPercent}</td>
+              <td style="text-align: left; font-size: 11px;">${testName}</td>
+              <td style="text-align: center; font-weight: bold;">${score}</td>
+              <td style="text-align: center;">${bonusScore}</td>
+              <td style="text-align: center;">${homework}</td>
+              <td style="text-align: left; font-size: 10px;">${note}</td>
             </tr>
-          </thead>
-          <tbody>
-            ${studentSessions
-              .map((session) => {
-                const studentRecord = session["Điểm danh"]?.find(
-                  (r) => r["Student ID"] === student.id
-                );
-                const completed = studentRecord?.["Bài tập hoàn thành"];
-                const total = session["Bài tập"]?.["Tổng số bài"];
-                const homework =
-                  completed !== undefined && total
-                    ? `${completed}/${total}`
-                    : "-";
-                const statusText = studentRecord
-                  ? getStatusText(studentRecord)
-                  : "-";
-                const statusColor = studentRecord
-                  ? getStatusColor(studentRecord)
-                  : "#999";
+          `;
+        }
+      });
 
-                return `
+      scoreTablesHTML += `
+        <div class="subject-section">
+          <div class="subject-header">
+            <span class="subject-name">📚 ${subject}</span>
+            <span class="subject-avg">TB: <strong>${subjectAvg}</strong></span>
+          </div>
+          <table class="score-table">
+            <thead>
               <tr>
-                <td style="text-align: center;">${dayjs(session["Ngày"]).format("DD/MM/YYYY")}</td>
-                <td>${session["Tên lớp"]}</td>
-                <td style="text-align: center;">${session["Giờ bắt đầu"]} - ${session["Giờ kết thúc"]}</td>
-                <td style="text-align: center; color: ${statusColor}; font-weight: bold;">${statusText}</td>
-                <td style="text-align: center; font-weight: bold;">${studentRecord?.["Điểm"] ?? "-"}</td>
-                <td style="text-align: center;">${homework}</td>
-                <td>${studentRecord?.["Ghi chú"] || "-"}</td>
+                <th style="width: 50px;">Ngày</th>
+                <th style="width: 60px;">Chuyên cần</th>
+                <th style="width: 55px;">% BTVN</th>
+                <th style="width: 110px;">Tên bài KT</th>
+                <th style="width: 45px;">Điểm</th>
+                <th style="width: 60px;">Điểm thưởng</th>
+                <th style="width: 55px;">Bài tập</th>
+                <th>Ghi chú</th>
               </tr>
-            `;
-              })
-              .join("")}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              ${tableRows}
+            </tbody>
+          </table>
+        </div>
+      `;
+    });
 
-      <div class="footer">
-        <p>Báo cáo được tạo tự động từ hệ thống quản lý học sinh.</p>
-        <p>Mọi thắc mắc xin liên hệ giáo viên phụ trách.</p>
-      </div>
+    // Generate history table
+    let historyTableRows = "";
+    studentSessions.forEach((session) => {
+      const studentRecord = session["Điểm danh"]?.find(
+        (r) => r["Student ID"] === student.id
+      );
+      if (studentRecord) {
+        const date = dayjs(session["Ngày"]).format("DD/MM/YYYY");
+        const className = session["Tên lớp"] || "-";
+        const timeRange = `${session["Giờ bắt đầu"]} - ${session["Giờ kết thúc"]}`;
+        const statusText = getStatusText(studentRecord);
+        const statusColor = getStatusColor(studentRecord);
+        const score = studentRecord["Điểm kiểm tra"] ?? studentRecord["Điểm"] ?? "-";
+        const testName = studentRecord["Bài kiểm tra"] || "-";
+        const note = studentRecord["Ghi chú"] || "-";
+
+        historyTableRows += `
+          <tr>
+            <td style="text-align: center;">${date}</td>
+            <td style="text-align: left;">${className}</td>
+            <td style="text-align: center;">${timeRange}</td>
+            <td style="text-align: center; color: ${statusColor}; font-weight: 500;">${statusText}</td>
+            <td style="text-align: center; font-weight: bold;">${score}</td>
+            <td style="text-align: left; font-size: 11px;">${testName}</td>
+            <td style="text-align: left; font-size: 10px;">${note}</td>
+          </tr>
+        `;
+      }
+    });
+
+    return `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="UTF-8" />
+          <title>Báo cáo học tập - ${student["Họ và tên"]}</title>
+          <style>
+            @page { size: A4; margin: 15mm; }
+            body {
+              font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+              color: #333;
+              line-height: 1.5;
+              background: #fff;
+              font-size: 12px;
+            }
+            .watermark-container { position: relative; }
+            .watermark-logo {
+              position: absolute; 
+              top: 50%; 
+              left: 50%;
+              transform: translate(-50%, -50%);
+              z-index: 0; 
+              pointer-events: none;
+            }
+            .watermark-logo img {
+              width: 600px; height: 600px;
+              max-width: 80vw;
+              object-fit: contain; opacity: 0.22; filter: grayscale(25%);
+            }
+            .report-content { position: relative; z-index: 1; }
+            .header {
+              text-align: center;
+              border-bottom: 3px solid #004aad;
+              padding-bottom: 12px;
+              margin-bottom: 20px;
+            }
+            .header h1 {
+              color: #004aad;
+              font-size: 22px;
+              margin: 0;
+              text-transform: uppercase;
+              letter-spacing: 1px;
+            }
+            .header p { color: #666; margin: 5px 0 0; font-size: 12px; }
+            .section { margin-bottom: 18px; }
+            .section-title {
+              font-weight: bold;
+              color: #004aad;
+              border-left: 4px solid #004aad;
+              padding-left: 10px;
+              margin-bottom: 10px;
+              font-size: 14px;
+              text-transform: uppercase;
+            }
+            table { width: 100%; border-collapse: collapse; font-size: 12px; }
+            th, td { border: 1px solid #ccc; padding: 6px 8px; }
+            th { background-color: #004aad; color: #fff; text-align: center; font-weight: 600; }
+            tr:nth-child(even) { background-color: #f8f9fa; }
+            .info-table th { background: #f0f0f0; color: #333; text-align: left; width: 130px; }
+            .stats-grid {
+              display: grid;
+              grid-template-columns: repeat(5, 1fr);
+              gap: 10px;
+              margin-top: 10px;
+            }
+            .stat-card {
+              border: 1px solid #ddd;
+              border-radius: 6px;
+              padding: 10px;
+              text-align: center;
+              background: #fafafa;
+            }
+            .stat-value { font-size: 20px; font-weight: bold; color: #004aad; }
+            .stat-label { color: #666; font-size: 11px; margin-top: 3px; }
+            .subject-section { margin-bottom: 15px; }
+            .subject-header {
+              background: linear-gradient(135deg, #e6f7ff 0%, #bae7ff 100%);
+              padding: 8px 12px;
+              border-left: 4px solid #1890ff;
+              border-radius: 4px;
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              margin-bottom: 6px;
+            }
+            .subject-name { font-weight: bold; font-size: 13px; color: #004aad; }
+            .subject-avg { font-size: 12px; color: #666; }
+            .score-table th { background-color: #f5f5f5; color: #333; font-size: 11px; }
+            .score-table td { font-size: 11px; }
+            .history-table { margin-top: 10px; }
+            .history-table th { background-color: #004aad; color: #fff; font-size: 11px; }
+            .history-table td { font-size: 11px; }
+            .footer {
+              margin-top: 30px;
+              text-align: center;
+              color: #888;
+              font-size: 11px;
+              border-top: 1px solid #ccc;
+              padding-top: 10px;
+            }
+            .classes-list {
+              display: flex;
+              flex-wrap: wrap;
+              gap: 5px;
+              margin-top: 5px;
+            }
+            .class-tag {
+              background: #e6f7ff;
+              color: #1890ff;
+              padding: 2px 8px;
+              border-radius: 4px;
+              font-size: 11px;
+            }
+            @media print { 
+              body { margin: 0; } 
+              .no-print { display: none; }
+              .watermark-logo {
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                z-index: 0;
+                pointer-events: none;
+              }
+              .watermark-logo img {
+                width: 650px;
+                height: 650px;
+                opacity: 0.25;
+                filter: grayscale(25%);
+              }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="watermark-container">
+            <div class="watermark-logo">
+              <img src="/img/logo.png" alt="Background Logo" />
+            </div>
+            <div class="report-content">
+              <div class="header">
+                <h1>BÁO CÁO CHI TIẾT THEO BUỔI HỌC</h1>
+                <p>Ngày xuất: ${dayjs().format("DD/MM/YYYY HH:mm")}</p>
+              </div>
+
+              <div class="section">
+                <div class="section-title">Thông tin học sinh</div>
+                <table class="info-table">
+                  <tr><th>Họ và tên</th><td><strong>${student["Họ và tên"]}</strong></td></tr>
+                  <tr><th>Mã học sinh</th><td>${student["Mã học sinh"] || "-"}</td></tr>
+                  <tr><th>Ngày sinh</th><td>${student["Ngày sinh"] ? dayjs(student["Ngày sinh"]).format("DD/MM/YYYY") : "-"}</td></tr>
+                  <tr>
+                    <th>Các lớp đang học</th>
+                    <td>
+                      <div class="classes-list">
+                        ${uniqueClasses.map((name: string) => `<span class="class-tag">${name}</span>`).join("")}
+                      </div>
+                    </td>
+                  </tr>
+                  <tr><th>Số điện thoại</th><td>${student["Số điện thoại"] || "-"}</td></tr>
+                  <tr><th>Email</th><td>${student["Email"] || "-"}</td></tr>
+                </table>
+              </div>
+
+              <div class="section">
+                <div class="section-title">Thống kê tổng quan</div>
+                <div class="stats-grid">
+                  <div class="stat-card">
+                    <div class="stat-value">${stats.totalSessions}</div>
+                    <div class="stat-label">Tổng số buổi</div>
+                  </div>
+                  <div class="stat-card">
+                    <div class="stat-value" style="color: #52c41a;">${stats.presentSessions}</div>
+                    <div class="stat-label">Số buổi có mặt</div>
+                  </div>
+                  <div class="stat-card">
+                    <div class="stat-value" style="color: #ff4d4f;">${stats.absentSessions}</div>
+                    <div class="stat-label">Số buổi vắng</div>
+                  </div>
+                  <div class="stat-card">
+                    <div class="stat-value" style="color: #1890ff;">${attendanceRate}%</div>
+                    <div class="stat-label">Tỷ lệ tham gia</div>
+                  </div>
+                  <div class="stat-card">
+                    <div class="stat-value" style="color: #722ed1;">${averageScore}</div>
+                    <div class="stat-label">Điểm trung bình</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="section">
+                <div class="section-title">Bảng điểm theo môn</div>
+                ${scoreTablesHTML || '<p style="color: #999; text-align: center;">Không có dữ liệu</p>'}
+              </div>
+
+              <div class="footer">
+                <p>Báo cáo được tạo tự động từ hệ thống quản lý học sinh.</p>
+                <p style="margin-top: 5px;">Mọi thắc mắc xin liên hệ giáo viên phụ trách.</p>
+              </div>
+            </div>
+          </div>
+        </body>
+      </html>
     `;
   };
 
@@ -986,240 +1378,16 @@ const StudentReport = ({
     const printWindow = window.open("", "", "width=1000,height=800");
     if (!printWindow) return;
 
-    // Generate content based on view mode
-    let content = "";
+    // Generate full HTML content based on view mode
+    let htmlContent = "";
     
     if (viewMode === "monthly") {
-      content = generateMonthlyPrintContent();
+      htmlContent = generateMonthlyPrintContent();
     } else {
-      content = generateSessionPrintContent();
+      htmlContent = generateSessionPrintContent();
     }
 
-    // Common CSS styles
-    const styles = `
-      <style>
-        @page {
-          size: A4;
-          margin: 20mm;
-        }
-        body {
-          font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-          color: #333;
-          line-height: 1.6;
-          background: #fff;
-        }
-        h1, h2, h3 {
-          margin: 0;
-          color: #004aad;
-        }
-        .report-header {
-          text-align: center;
-          border-bottom: 3px solid #004aad;
-          padding-bottom: 10px;
-          margin-bottom: 20px;
-        }
-        .report-header h1 {
-          font-size: 24px;
-          text-transform: uppercase;
-          letter-spacing: 1px;
-        }
-        .report-header p {
-          font-size: 13px;
-          color: #666;
-        }
-        .section {
-          margin-bottom: 25px;
-        }
-        .section-title {
-          font-weight: bold;
-          color: #004aad;
-          border-left: 4px solid #004aad;
-          padding-left: 10px;
-          margin-bottom: 10px;
-          font-size: 16px;
-          text-transform: uppercase;
-        }
-        table {
-          width: 100%;
-          border-collapse: collapse;
-          margin-top: 8px;
-          font-size: 13px;
-        }
-        th, td {
-          border: 1px solid #ccc;
-          padding: 6px 8px;
-          text-align: left;
-          vertical-align: middle;
-        }
-        th {
-          background-color: #004aad;
-          color: #fff;
-          text-align: center;
-        }
-        tr:nth-child(even) {
-          background-color: #f8f9fa;
-        }
-        .stats-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-          gap: 8px;
-          margin-top: 10px;
-        }
-        .stat-card {
-          border: 1px solid #ddd;
-          border-radius: 6px;
-          padding: 6px 8px;
-          background: #fafafa;
-          text-align: center;
-        }
-        .stat-value {
-          font-size: 16px;
-          font-weight: 600;
-          color: #004aad;
-        }
-        .stat-label {
-          color: #666;
-        }
-        .comment-box {
-          border: 1px solid #ddd;
-          border-radius: 6px;
-          padding: 12px;
-          background: #fefefe;
-          white-space: pre-wrap;
-          font-size: 14px;
-          line-height: 1.7;
-        }
-        .subject-section {
-          margin-bottom: 20px;
-        }
-        .subject-header {
-          background: linear-gradient(135deg, #e6f7ff 0%, #bae7ff 100%);
-          padding: 10px 15px;
-          border-left: 4px solid #1890ff;
-          border-radius: 4px;
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 8px;
-        }
-        .subject-name {
-          font-weight: bold;
-          font-size: 14px;
-          color: #004aad;
-        }
-        .subject-avg {
-          font-size: 13px;
-          color: #666;
-        }
-        .score-table {
-          width: 100%;
-          border-collapse: collapse;
-          margin-top: 0;
-        }
-        .score-table th, .score-table td {
-          border: 1px solid #d9d9d9;
-          padding: 6px 8px;
-          font-size: 12px;
-        }
-        .score-table th {
-          background-color: #fafafa;
-          color: #333;
-          font-weight: 600;
-        }
-        .subject-comment {
-          margin-top: 10px;
-          padding: 12px 15px;
-          background: rgba(240, 250, 235, 0.4);
-          border-left: 4px solid rgba(82, 196, 26, 0.7);
-          border-radius: 4px;
-        }
-        .subject-comment .comment-label {
-          font-weight: bold;
-          font-size: 13px;
-          color: #389e0d;
-          margin-bottom: 6px;
-        }
-        .subject-comment .comment-content {
-          font-size: 13px;
-          line-height: 1.6;
-          color: #333;
-          white-space: pre-wrap;
-        }
-        .footer {
-          margin-top: 40px;
-          text-align: center;
-          font-size: 12px;
-          color: #888;
-          border-top: 1px solid #ccc;
-          padding-top: 10px;
-        }
-        @media print {
-          body { margin: 0; }
-          .no-print { display: none; }
-        }
-        .watermark-container {
-          position: relative;
-          min-height: 100vh;
-        }
-        .watermark-logo {
-          position: absolute;
-          top: 50%;
-          left: 50%;
-          transform: translate(-50%, -50%);
-          z-index: 0;
-          pointer-events: none;
-        }
-        .watermark-logo img {
-          width: 600px;
-          height: 600px;
-          max-width: 75vw;
-          object-fit: contain;
-          opacity: 0.22;
-          filter: grayscale(30%);
-          user-select: none;
-          pointer-events: none;
-        }
-        .report-content {
-          position: relative;
-          z-index: 1;
-        }
-        @media print {
-          .watermark-logo {
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-          }
-          .watermark-logo img {
-            width: 650px;
-            height: 650px;
-            opacity: 0.25;
-            filter: grayscale(30%);
-          }
-        }
-      </style>
-    `;
-
-    printWindow.document.write(`
-      <html>
-        <head>
-          <meta charset="UTF-8" />
-          <title>Báo cáo học tập - ${student["Họ và tên"]}</title>
-          ${styles}
-        </head>
-        <body>
-          <div class="watermark-container">
-            <div class="watermark-logo">
-              <img src="/img/logo.png" alt="Background Logo" />
-            </div>
-            <div class="report-content">
-              ${content}
-            </div>
-          </div>
-        </body>
-      </html>
-    `);
-
+    printWindow.document.write(htmlContent);
     printWindow.document.close();
     printWindow.focus();
     setTimeout(() => {
