@@ -28,6 +28,7 @@ import {
   PlusOutlined,
   FilterOutlined,
   DownloadOutlined,
+  GiftOutlined,
 } from "@ant-design/icons";
 import { ref, onValue } from "firebase/database";
 import { database } from "../../firebase";
@@ -148,6 +149,10 @@ const StudentReportPage = () => {
       if (record["Vắng có phép"]) {
         return <Tag color="blue">Vắng có phép</Tag>;
       }
+      if (record["Vắng không phép"]) {
+        return <Tag color="red">Vắng không phép</Tag>;
+      }
+      // Default to unexcused absence if not explicitly marked
       return <Tag color="red">Vắng không phép</Tag>;
     }
   };
@@ -668,14 +673,14 @@ const StudentReportPage = () => {
           </Row>
           <Divider />
           <Row gutter={16}>
-            <Col span={12}>
+            <Col span={8}>
               <Statistic
                 title="Tổng số giờ học"
                 value={stats.totalHours}
                 suffix="giờ"
               />
             </Col>
-            <Col span={12}>
+            <Col span={8}>
               <Statistic
                 title="Điểm trung bình"
                 value={(() => {
@@ -684,7 +689,7 @@ const StudentReportPage = () => {
                       (s) =>
                         s["Điểm danh"]?.find(
                           (r) => r["Student ID"] === student.id
-                        )?.["Điểm"]
+                        )?.[" Điểm"]
                     )
                     .filter(
                       (score) => score !== undefined && score !== null
@@ -695,6 +700,27 @@ const StudentReportPage = () => {
                   ).toFixed(1);
                 })()}
                 suffix="/ 10"
+              />
+            </Col>
+            <Col span={8}>
+              <Statistic
+                title="Tổng điểm thưởng"
+                value={(() => {
+                  const bonusPoints = studentSessions
+                    .map(
+                      (s) =>
+                        s["Điểm danh"]?.find(
+                          (r) => r["Student ID"] === student.id
+                        )?.["Điểm thưởng"]
+                    )
+                    .filter(
+                      (bonus) => bonus !== undefined && bonus !== null
+                    ) as number[];
+                  if (bonusPoints.length === 0) return 0;
+                  return bonusPoints.reduce((a, b) => a + b, 0);
+                })()}
+                valueStyle={{ color: "#722ed1" }}
+                prefix={<GiftOutlined />}
               />
             </Col>
           </Row>

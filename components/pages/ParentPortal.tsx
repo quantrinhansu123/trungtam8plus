@@ -37,6 +37,7 @@ import {
   DollarOutlined,
   BarChartOutlined,
   DownloadOutlined,
+  GiftOutlined,
 } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { useNavigate } from "react-router-dom";
@@ -50,6 +51,7 @@ const ParentPortal: React.FC = () => {
   const [student, setStudent] = useState<any>(null);
   const [classes, setClasses] = useState<any[]>([]);
   const [attendanceSessions, setAttendanceSessions] = useState<any[]>([]);
+  const [redeemHistory, setRedeemHistory] = useState<any[]>([]);
   const [invoices, setInvoices] = useState<any[]>([]);
   const [scheduleEvents, setScheduleEvents] = useState<any[]>([]);
   const [selectedMonth, setSelectedMonth] = useState<dayjs.Dayjs | null>(dayjs());
@@ -154,6 +156,22 @@ const ParentPortal: React.FC = () => {
           setAttendanceSessions(studentSessions);
         }
 
+        // Fetch redeem history
+        const redeemRes = await fetch(
+          `${DATABASE_URL_BASE}/datasheet/Đổi_thưởng.json`
+        );
+        const redeemData = await redeemRes.json();
+        if (redeemData) {
+          const studentRedeems = Object.entries(redeemData)
+            .filter(([id, redeem]: [string, any]) =>
+              redeem["Student ID"] === userProfile.studentId
+            )
+            .map(([id, redeem]: [string, any]) => ({ id, ...redeem }));
+          setRedeemHistory(studentRedeems);
+        } else {
+          setRedeemHistory([]);
+        }
+
         // Fetch invoices
         const invoicesRes = await fetch(
           `${DATABASE_URL_BASE}/datasheet/Phiếu_thu_học_phí.json`
@@ -209,6 +227,8 @@ const ParentPortal: React.FC = () => {
     let lateSessions = 0;
     let totalScore = 0;
     let scoredSessions = 0;
+    let totalBonusPoints = 0;
+    let redeemedBonusPoints = 0;
 
     attendanceSessions.forEach((session) => {
       const record = session["Điểm danh"]?.find(
@@ -222,7 +242,17 @@ const ParentPortal: React.FC = () => {
           totalScore += record["Điểm"];
           scoredSessions++;
         }
+        // Tính tổng điểm thưởng
+        if (record["Điểm thưởng"] !== null && record["Điểm thưởng"] !== undefined) {
+          totalBonusPoints += record["Điểm thưởng"];
+        }
       }
+    });
+
+    // ✅ FIX: Tính tổng điểm đã đổi thưởng từ bảng Đổi_thưởng
+    redeemHistory.forEach((redeem) => {
+      const points = Number(redeem["Điểm đổi"] || 0);
+      redeemedBonusPoints += points;
     });
 
     const attendanceRate =
@@ -237,8 +267,10 @@ const ParentPortal: React.FC = () => {
       attendanceRate,
       averageScore,
       scoredSessions,
+      totalBonusPoints,
+      redeemedBonusPoints,
     };
-  }, [attendanceSessions, userProfile]);
+  }, [attendanceSessions, redeemHistory, userProfile]);
 
   // Recent sessions
   const recentSessions = useMemo(() => {
@@ -491,7 +523,7 @@ const ParentPortal: React.FC = () => {
     }, 400);
   };
 
-  // Print monthly report function
+  // Print monthly report function - matching AdminMonthlyReportReview format
   const handlePrintMonthlyReport = () => {
     if (!student || !userProfile || !selectedMonth) return;
 
@@ -505,7 +537,7 @@ const ParentPortal: React.FC = () => {
         sessionDate.month() === selectedMonth.month() &&
         sessionDate.year() === selectedMonth.year()
       );
-    }).sort((a, b) => new Date(b["Ngày"]).getTime() - new Date(a["Ngày"]).getTime());
+    }).sort((a, b) => new Date(a["Ngày"]).getTime() - new Date(b["Ngày"]).getTime());
 
     // Calculate stats for selected month
     let presentCount = 0;
@@ -523,8 +555,10 @@ const ParentPortal: React.FC = () => {
         } else {
           absentCount++;
         }
-        if (record["Điểm"] !== null && record["Điểm"] !== undefined) {
-          totalScore += record["Điểm"];
+        // Check both Điểm and Điểm kiểm tra
+        const score = record["Điểm kiểm tra"] ?? record["Điểm"];
+        if (score !== null && score !== undefined) {
+          totalScore += score;
           scoreCount++;
         }
       }
@@ -553,21 +587,161 @@ const ParentPortal: React.FC = () => {
       }
     };
 
+    // Group sessions by subject for score table (matching AdminMonthlyReportReview format)
+    const sessionsBySubject: { [subject: string]: any[] } = {};
+    filteredSessions.forEach((session) => {
+      const subject = session["Tên lớp"]?.split(" - ")[0] || "Chưa phân loại";
+      if (!sessionsBySubject[subject]) {
+        sessionsBySubject[subject] = [];
+      }
+      sessionsBySubject[subject].push(session);
+    });
+
+    // Generate score tables by subject
+    let scoreTablesHTML = "";
+    Object.entries(sessionsBySubject).forEach(([subject, subjectSessions]) => {
+      // Calculate subject stats
+      let subjectScores: number[] = [];
+      subjectSessions.forEach((session) => {
+        const record = session["Điểm danh"]?.find((r: any) => r["Student ID"] === userProfile.studentId);
+        const score = record?.["Điểm kiểm tra"] ?? record?.["Điểm"];
+        if (score !== null && score !== undefined) {
+          subjectScores.push(score);
+        }
+      });
+      const subjectAvg = subjectScores.length > 0
+        ? (subjectScores.reduce((a, b) => a + b, 0) / subjectScores.length).toFixed(1)
+        : "-";
+
+      let tableRows = "";
+      subjectSessions.forEach((session) => {
+        const studentRecord = session["Điểm danh"]?.find(
+          (r: any) => r["Student ID"] === userProfile.studentId
+        );
+
+        if (studentRecord) {
+          const date = dayjs(session["Ngày"]).format("DD/MM");
+          const attendance = studentRecord["Có mặt"]
+            ? (studentRecord["Đi muộn"] ? "Muộn" : "✓")
+            : (studentRecord["Vắng có phép"] ? "P" : "✗");
+          const attendanceColor = studentRecord["Có mặt"]
+            ? (studentRecord["Đi muộn"] ? "#fa8c16" : "#52c41a")
+            : (studentRecord["Vắng có phép"] ? "#1890ff" : "#f5222d");
+          const homeworkPercent = studentRecord["% Hoàn thành BTVN"] ?? "-";
+          const testName = studentRecord["Bài kiểm tra"] || "-";
+          const score = studentRecord["Điểm kiểm tra"] ?? studentRecord["Điểm"] ?? "-";
+          const bonusScore = studentRecord["Điểm thưởng"] ?? "-";
+          const completed = studentRecord["Bài tập hoàn thành"];
+          const total = session["Bài tập"]?.["Tổng số bài"];
+          const homework = (completed !== undefined && total) ? `${completed}/${total}` : "-";
+          const note = studentRecord["Ghi chú"] || "-";
+
+          tableRows += `
+            <tr>
+              <td style="text-align: center;">${date}</td>
+              <td style="text-align: center; color: ${attendanceColor}; font-weight: bold;">${attendance}</td>
+              <td style="text-align: center;">${homeworkPercent}</td>
+              <td style="text-align: left; font-size: 11px;">${testName}</td>
+              <td style="text-align: center; font-weight: bold;">${score}</td>
+              <td style="text-align: center;">${bonusScore}</td>
+              <td style="text-align: center;">${homework}</td>
+              <td style="text-align: left; font-size: 10px;">${note}</td>
+            </tr>
+          `;
+        }
+      });
+
+      scoreTablesHTML += `
+        <div class="subject-section">
+          <div class="subject-header">
+            <span class="subject-name">📚 ${subject}</span>
+            <span class="subject-avg">TB: <strong>${subjectAvg}</strong></span>
+          </div>
+          <table class="score-table">
+            <thead>
+              <tr>
+                <th style="width: 50px;">Ngày</th>
+                <th style="width: 60px;">Chuyên cần</th>
+                <th style="width: 55px;">% BTVN</th>
+                <th style="width: 110px;">Tên bài KT</th>
+                <th style="width: 45px;">Điểm</th>
+                <th style="width: 60px;">Điểm thưởng</th>
+                <th style="width: 55px;">Bài tập</th>
+                <th>Ghi chú</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${tableRows}
+            </tbody>
+          </table>
+        </div>
+      `;
+    });
+
+    // Get unique classes for this month
+    const uniqueClasses = Array.from(
+      new Set(filteredSessions.map((s) => s["Tên lớp"] || ""))
+    ).filter((name) => name);
+
+    // Generate history table
+    let historyTableRows = "";
+    filteredSessions.forEach((session) => {
+      const studentRecord = session["Điểm danh"]?.find(
+        (r: any) => r["Student ID"] === userProfile.studentId
+      );
+      if (studentRecord) {
+        const date = dayjs(session["Ngày"]).format("DD/MM/YYYY");
+        const className = session["Tên lớp"] || "-";
+        const timeRange = `${session["Giờ bắt đầu"]} - ${session["Giờ kết thúc"]}`;
+        const statusText = getStatusText(studentRecord);
+        const statusColor = getStatusColor(studentRecord);
+        const score = studentRecord["Điểm kiểm tra"] ?? studentRecord["Điểm"] ?? "-";
+        const completed = studentRecord["Bài tập hoàn thành"];
+        const total = session["Bài tập"]?.["Tổng số bài"];
+        const homework = (completed !== undefined && total) ? `${completed}/${total}` : "-";
+        const note = studentRecord["Ghi chú"] || "-";
+
+        historyTableRows += `
+          <tr>
+            <td style="text-align: center;">${date}</td>
+            <td style="text-align: left;">${className}</td>
+            <td style="text-align: center;">${timeRange}</td>
+            <td style="text-align: center; color: ${statusColor}; font-weight: 500;">${statusText}</td>
+            <td style="text-align: center; font-weight: bold;">${score}</td>
+            <td style="text-align: center;">${homework}</td>
+            <td style="text-align: left; font-size: 10px;">${note}</td>
+          </tr>
+        `;
+      }
+    });
+
     const content = `
-      <div class="report-header">
-        <h1>BÁO CÁO THEO THÁNG ${selectedMonth.format("MM/YYYY")}</h1>
-        <p>Ngày xuất: ${dayjs().format("DD/MM/YYYY HH:mm")}</p>
-      </div>
+      <div class="watermark-container">
+        <div class="watermark-logo">
+          <img src="/img/logo.png" alt="Background Logo" />
+        </div>
+        <div class="report-content">
+          <div class="report-header">
+            <h1>BÁO CÁO HỌC TẬP THÁNG ${selectedMonth.format("MM/YYYY")}</h1>
+            <p>Ngày xuất: ${dayjs().format("DD/MM/YYYY HH:mm")}</p>
+          </div>
 
       <div class="section">
         <div class="section-title">Thông tin học sinh</div>
-        <table>
-          <tr><th>Họ và tên</th><td>${userProfile.studentName || student["Họ và tên"] || ""}</td></tr>
+        <table class="info-table">
+          <tr><th>Họ và tên</th><td><strong>${userProfile.studentName || student["Họ và tên"] || ""}</strong></td></tr>
           <tr><th>Mã học sinh</th><td>${userProfile.studentCode || student["Mã học sinh"] || "-"}</td></tr>
           <tr><th>Ngày sinh</th><td>${student["Ngày sinh"] ? dayjs(student["Ngày sinh"]).format("DD/MM/YYYY") : "-"}</td></tr>
+          <tr>
+            <th>Các lớp đang học</th>
+            <td>
+              <div class="classes-list">
+                ${uniqueClasses.map((name: string) => `<span class="class-tag">${name}</span>`).join("")}
+              </div>
+            </td>
+          </tr>
           <tr><th>Số điện thoại</th><td>${student["Số điện thoại"] || "-"}</td></tr>
           <tr><th>Email</th><td>${student["Email"] || "-"}</td></tr>
-          <tr><th>Địa chỉ</th><td>${student["Địa chỉ"] || "-"}</td></tr>
         </table>
       </div>
 
@@ -579,70 +753,45 @@ const ParentPortal: React.FC = () => {
             <div class="stat-label">Tổng số buổi</div>
           </div>
           <div class="stat-card">
-            <div class="stat-value">${presentCount}</div>
+            <div class="stat-value" style="color: #52c41a;">${presentCount}</div>
             <div class="stat-label">Số buổi có mặt</div>
           </div>
           <div class="stat-card">
-            <div class="stat-value">${absentCount}</div>
+            <div class="stat-value" style="color: #ff4d4f;">${absentCount}</div>
             <div class="stat-label">Số buổi vắng</div>
           </div>
           <div class="stat-card">
-            <div class="stat-value">${attendanceRate}%</div>
+            <div class="stat-value" style="color: #1890ff;">${attendanceRate}%</div>
             <div class="stat-label">Tỷ lệ tham gia</div>
           </div>
           <div class="stat-card">
-            <div class="stat-value">${avgScore} / 10</div>
+            <div class="stat-value" style="color: #722ed1;">${avgScore}</div>
             <div class="stat-label">Điểm trung bình</div>
           </div>
         </div>
       </div>
 
       <div class="section">
+        <div class="section-title">Bảng điểm theo môn</div>
+        ${scoreTablesHTML || '<p style="color: #999; text-align: center;">Không có dữ liệu điểm trong tháng này</p>'}
+      </div>
+
+      <div class="section" style="page-break-before: auto;">
         <div class="section-title">Lịch sử học tập chi tiết</div>
-        <table>
+        <table class="history-table">
           <thead>
             <tr>
               <th style="width: 80px;">Ngày</th>
-              <th>Lớp học</th>
-              <th style="width: 100px;">Giờ học</th>
-              <th style="width: 100px;">Trạng thái</th>
-              <th style="width: 60px;">Điểm</th>
+              <th style="width: 120px;">Lớp học</th>
+              <th style="width: 90px;">Giờ học</th>
+              <th style="width: 90px;">Trạng thái</th>
+              <th style="width: 50px;">Điểm</th>
               <th style="width: 80px;">Bài tập</th>
               <th>Ghi chú</th>
             </tr>
           </thead>
           <tbody>
-            ${filteredSessions
-              .map((session) => {
-                const studentRecord = session["Điểm danh"]?.find(
-                  (r: any) => r["Student ID"] === userProfile.studentId
-                );
-                const completed = studentRecord?.["Bài tập hoàn thành"];
-                const total = session["Bài tập"]?.["Tổng số bài"];
-                const homework =
-                  completed !== undefined && total
-                    ? `${completed}/${total}`
-                    : "-";
-                const statusText = studentRecord
-                  ? getStatusText(studentRecord)
-                  : "-";
-                const statusColor = studentRecord
-                  ? getStatusColor(studentRecord)
-                  : "#999";
-
-                return `
-              <tr>
-                <td style="text-align: center;">${dayjs(session["Ngày"]).format("DD/MM/YYYY")}</td>
-                <td>${session["Tên lớp"]}</td>
-                <td style="text-align: center;">${session["Giờ bắt đầu"]} - ${session["Giờ kết thúc"]}</td>
-                <td style="text-align: center; color: ${statusColor}; font-weight: bold;">${statusText}</td>
-                <td style="text-align: center; font-weight: bold;">${studentRecord?.["Điểm"] ?? "-"}</td>
-                <td style="text-align: center;">${homework}</td>
-                <td>${studentRecord?.["Ghi chú"] || "-"}</td>
-              </tr>
-            `;
-              })
-              .join("")}
+            ${historyTableRows || '<tr><td colspan="7" style="text-align: center; color: #999;">Không có dữ liệu</td></tr>'}
           </tbody>
         </table>
       </div>
@@ -650,6 +799,8 @@ const ParentPortal: React.FC = () => {
       <div class="footer">
         <p>Báo cáo được tạo tự động từ hệ thống quản lý học sinh.</p>
         <p>Mọi thắc mắc xin liên hệ giáo viên phụ trách.</p>
+      </div>
+        </div>
       </div>
     `;
 
@@ -738,6 +889,38 @@ const ParentPortal: React.FC = () => {
           font-size: 12px;
           color: #666;
         }
+        .info-table th { background: #f0f0f0; color: #333; text-align: left; width: 130px; }
+        .subject-section { margin-bottom: 15px; }
+        .subject-header {
+          background: linear-gradient(135deg, #e6f7ff 0%, #bae7ff 100%);
+          padding: 8px 12px;
+          border-left: 4px solid #1890ff;
+          border-radius: 4px;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 6px;
+        }
+        .subject-name { font-weight: bold; font-size: 13px; color: #004aad; }
+        .subject-avg { font-size: 12px; color: #666; }
+        .score-table th { background-color: #f5f5f5; color: #333; font-size: 11px; }
+        .score-table td { font-size: 11px; }
+        .history-table { margin-top: 10px; }
+        .history-table th { background-color: #004aad; color: #fff; font-size: 11px; }
+        .history-table td { font-size: 11px; }
+        .classes-list {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 5px;
+          margin-top: 5px;
+        }
+        .class-tag {
+          background: #e6f7ff;
+          color: #1890ff;
+          padding: 2px 8px;
+          border-radius: 4px;
+          font-size: 11px;
+        }
         .footer {
           margin-top: 40px;
           text-align: center;
@@ -746,8 +929,40 @@ const ParentPortal: React.FC = () => {
           border-top: 1px solid #ccc;
           padding-top: 10px;
         }
+        .watermark-container { position: relative; }
+        .watermark-logo {
+          position: absolute;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          z-index: 0;
+          pointer-events: none;
+        }
+        .watermark-logo img {
+          width: 600px;
+          height: 600px;
+          max-width: 80vw;
+          object-fit: contain;
+          opacity: 0.22;
+          filter: grayscale(25%);
+        }
+        .report-content { position: relative; z-index: 1; }
         @media print {
           body { margin: 0; }
+          .watermark-logo {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 0;
+            pointer-events: none;
+          }
+          .watermark-logo img {
+            width: 650px;
+            height: 650px;
+            opacity: 0.25;
+            filter: grayscale(25%);
+          }
         }
       </style>
     `;
@@ -990,6 +1205,39 @@ const ParentPortal: React.FC = () => {
                 value={classes.length}
                 prefix={<CalendarOutlined />}
                 suffix="lớp"
+              />
+            </Card>
+          </Col>
+          <Col xs={24} sm={12} md={6}>
+            <Card>
+              <Statistic
+                title="Tổng điểm tích lũy"
+                value={stats.totalBonusPoints}
+                valueStyle={{ color: "#722ed1" }}
+                prefix={<GiftOutlined />}
+                suffix="điểm"
+              />
+            </Card>
+          </Col>
+          <Col xs={24} sm={12} md={6}>
+            <Card>
+              <Statistic
+                title="Đã đổi thưởng"
+                value={stats.redeemedBonusPoints}
+                valueStyle={{ color: "#ff4d4f" }}
+                prefix={<CheckCircleOutlined />}
+                suffix="điểm"
+              />
+            </Card>
+          </Col>
+          <Col xs={24} sm={12} md={6}>
+            <Card>
+              <Statistic
+                title="Điểm còn lại"
+                value={stats.totalBonusPoints - stats.redeemedBonusPoints}
+                valueStyle={{ color: "#52c41a" }}
+                prefix={<GiftOutlined />}
+                suffix="điểm"
               />
             </Card>
           </Col>
@@ -1398,16 +1646,27 @@ const ParentPortal: React.FC = () => {
                           const record = session["Điểm danh"]?.find(
                             (r: any) => r["Student ID"] === userProfile?.studentId
                           );
-                          if (
-                            !record ||
-                            record["Điểm"] === null ||
-                            record["Điểm"] === undefined
-                          )
-                            return null;
+                          // Check for scores in multiple fields
+                          const hasScore = record && (
+                            record["Điểm"] !== null && record["Điểm"] !== undefined ||
+                            record["Điểm kiểm tra"] !== null && record["Điểm kiểm tra"] !== undefined ||
+                            (record["Chi tiết điểm"] && record["Chi tiết điểm"].length > 0)
+                          );
+                          
+                          if (!hasScore) return null;
+                          
+                          // Use "Điểm kiểm tra" first, then "Điểm" as fallback
+                          const score = record["Điểm kiểm tra"] ?? record["Điểm"];
+                          const testName = record["Bài kiểm tra"] || "-";
+                          const scoreDetails = record["Chi tiết điểm"] || [];
+                          
                           return {
                             ...session,
-                            score: record["Điểm"],
+                            score,
+                            testName,
+                            scoreCount: scoreDetails.length,
                             note: record["Ghi chú"],
+                            record,
                           };
                         })
                         .filter(Boolean)}
@@ -1424,20 +1683,34 @@ const ParentPortal: React.FC = () => {
                           key: "class",
                         },
                         {
+                          title: "Bài kiểm tra",
+                          dataIndex: "testName",
+                          key: "testName",
+                        },
+                        {
                           title: "Điểm",
                           dataIndex: "score",
                           key: "score",
                           align: "center",
                           render: (score) => (
-                            <Tag
-                              color={
-                                score >= 8 ? "green" : score >= 6.5 ? "blue" : score >= 5 ? "orange" : "red"
-                              }
-                              style={{ fontSize: 16, padding: "4px 12px" }}
-                            >
-                              {score}
-                            </Tag>
+                            score !== null && score !== undefined ? (
+                              <Tag
+                                color={
+                                  score >= 8 ? "green" : score >= 6.5 ? "blue" : score >= 5 ? "orange" : "red"
+                                }
+                                style={{ fontSize: 16, padding: "4px 12px" }}
+                              >
+                                {score}
+                              </Tag>
+                            ) : "-"
                           ),
+                        },
+                        {
+                          title: "Chi tiết",
+                          dataIndex: "scoreCount",
+                          key: "scoreCount",
+                          align: "center",
+                          render: (count) => count > 0 ? <Badge count={count} /> : "-",
                         },
                         {
                           title: "Ghi chú",
@@ -1446,6 +1719,56 @@ const ParentPortal: React.FC = () => {
                           render: (note) => note || "-",
                         },
                       ]}
+                      expandable={{
+                        expandedRowRender: (record) => {
+                          const scoreDetails = record.record?.["Chi tiết điểm"] || [];
+                          if (scoreDetails.length === 0) return null;
+                          return (
+                            <div style={{ padding: "8px 16px" }}>
+                              <Text strong>Chi tiết điểm:</Text>
+                              <Table
+                                dataSource={scoreDetails}
+                                pagination={false}
+                                size="small"
+                                columns={[
+                                  {
+                                    title: "Tên điểm",
+                                    dataIndex: "Tên điểm",
+                                    key: "name",
+                                  },
+                                  {
+                                    title: "Điểm",
+                                    dataIndex: "Điểm",
+                                    key: "score",
+                                    align: "center",
+                                    render: (score) => (
+                                      <Tag color={score >= 8 ? "green" : score >= 6.5 ? "blue" : score >= 5 ? "orange" : "red"}>
+                                        {score}
+                                      </Tag>
+                                    ),
+                                  },
+                                  {
+                                    title: "Ngày",
+                                    dataIndex: "Ngày",
+                                    key: "date",
+                                    render: (date) => dayjs(date).format("DD/MM/YYYY"),
+                                  },
+                                  {
+                                    title: "Ghi chú",
+                                    dataIndex: "Ghi chú",
+                                    key: "note",
+                                    render: (note) => note || "-",
+                                  },
+                                ]}
+                              />
+                            </div>
+                          );
+                        },
+                        rowExpandable: (record) => {
+                          const scoreDetails = record.record?.["Chi tiết điểm"] || [];
+                          return scoreDetails.length > 0;
+                        },
+                      }}
                       pagination={{ pageSize: 10 }}
                       locale={{ emptyText: "Chưa có điểm kiểm tra nào" }}
                     />

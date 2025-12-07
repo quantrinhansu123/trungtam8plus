@@ -135,6 +135,10 @@ const StudentReport = ({
       if (record["Vắng có phép"]) {
         return <Tag color="blue">Vắng có phép</Tag>;
       }
+      if (record["Vắng không phép"]) {
+        return <Tag color="red">Vắng không phép</Tag>;
+      }
+      // Default to unexcused absence if not explicitly marked
       return <Tag color="red">Vắng không phép</Tag>;
     }
   };

@@ -99,6 +99,7 @@ export interface AttendanceRecord {
     "Có mặt": boolean; // Present or absent (step 1)
     "Đi muộn"?: boolean; // Late (step 2)
     "Vắng có phép"?: boolean; // Absent with permission (step 2)
+    "Vắng không phép"?: boolean; // Absent without permission (step 2)
     "Ghi chú"?: string;
     "Điểm"?: number | null; // Score for homework (optional)
     "Bài tập hoàn thành"?: number; // Number of exercises completed

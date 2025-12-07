@@ -64,6 +64,7 @@ const AttendanceSessionPage = () => {
   const [commonTestName, setCommonTestName] = useState<string>("");
   const [isRedeemModalOpen, setIsRedeemModalOpen] = useState(false);
   const [selectedStudentForRedeem, setSelectedStudentForRedeem] = useState<Student | null>(null);
+  const [currentAvailableBonus, setCurrentAvailableBonus] = useState<number>(0);
   const [redeemForm] = Form.useForm();
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [selectedStudentForHistory, setSelectedStudentForHistory] = useState<Student | null>(null);
@@ -224,8 +225,30 @@ const AttendanceSessionPage = () => {
           const updated = { ...record };
           if (withPermission) {
             updated["Vắng có phép"] = true;
+            delete updated["Vắng không phép"]; // Remove unexcused if excused is checked
           } else {
             delete updated["Vắng có phép"];
+          }
+          return updated;
+        }
+        return record;
+      })
+    );
+  };
+
+  const handleAbsentWithoutPermissionChange = (
+    studentId: string,
+    withoutPermission: boolean
+  ) => {
+    setAttendanceRecords((prev) =>
+      prev.map((record) => {
+        if (record["Student ID"] === studentId) {
+          const updated = { ...record };
+          if (withoutPermission) {
+            updated["Vắng không phép"] = true;
+            delete updated["Vắng có phép"]; // Remove excused if unexcused is checked
+          } else {
+            delete updated["Vắng không phép"];
           }
           return updated;
         }
@@ -432,6 +455,64 @@ const AttendanceSessionPage = () => {
     return () => unsubscribe();
   }, [isHistoryModalOpen, selectedStudentForHistory]);
 
+  // ✅ Calculate available bonus points when opening redeem modal
+  useEffect(() => {
+    if (!isRedeemModalOpen || !selectedStudentForRedeem) {
+      setCurrentAvailableBonus(0);
+      return;
+    }
+
+    const calculateBonus = async () => {
+      try {
+        // Tính tổng điểm thưởng từ tất cả buổi học
+        const sessionsRef = ref(database, "datasheet/Điểm_danh_sessions");
+        const sessionsSnapshot = await new Promise<any>((resolve) => {
+          onValue(sessionsRef, (snapshot) => {
+            resolve(snapshot.val());
+          }, { onlyOnce: true });
+        });
+
+        let calculatedTotalBonus = 0;
+        if (sessionsSnapshot) {
+          Object.values(sessionsSnapshot).forEach((session: any) => {
+            const records = session["Điểm danh"] || [];
+            records.forEach((record: any) => {
+              if (record["Student ID"] === selectedStudentForRedeem.id) {
+                const bonusPoints = Number(record["Điểm thưởng"] || 0);
+                calculatedTotalBonus += bonusPoints;
+              }
+            });
+          });
+        }
+
+        // Trừ đi tổng điểm đã đổi
+        const redeemHistoryRef = ref(database, "datasheet/Đổi_thưởng");
+        const redeemSnapshot = await new Promise<any>((resolve) => {
+          onValue(redeemHistoryRef, (snapshot) => {
+            resolve(snapshot.val());
+          }, { onlyOnce: true });
+        });
+
+        let totalRedeemed = 0;
+        if (redeemSnapshot) {
+          Object.values(redeemSnapshot).forEach((redeem: any) => {
+            if (redeem["Student ID"] === selectedStudentForRedeem.id) {
+              totalRedeemed += Number(redeem["Điểm đổi"] || 0);
+            }
+          });
+        }
+
+        const availableBonus = calculatedTotalBonus - totalRedeemed;
+        setCurrentAvailableBonus(availableBonus);
+      } catch (error) {
+        console.error("Error calculating bonus:", error);
+        setCurrentAvailableBonus(0);
+      }
+    };
+
+    calculateBonus();
+  }, [isRedeemModalOpen, selectedStudentForRedeem]);
+
   // Handle redeem points
   const handleRedeemPoints = async () => {
     if (!selectedStudentForRedeem) return;
@@ -446,18 +527,49 @@ const AttendanceSessionPage = () => {
         return;
       }
 
-      // Get current student data
-      const studentRef = ref(database, `datasheet/Danh_sách_học_sinh/${selectedStudentForRedeem.id}`);
-      const studentSnapshot = await new Promise<any>((resolve) => {
-        onValue(studentRef, (snapshot) => {
+      // ✅ FIX: Tính tổng điểm thưởng từ tất cả buổi học
+      const sessionsRef = ref(database, "datasheet/Điểm_danh_sessions");
+      const sessionsSnapshot = await new Promise<any>((resolve) => {
+        onValue(sessionsRef, (snapshot) => {
           resolve(snapshot.val());
         }, { onlyOnce: true });
       });
 
-      const currentTotalBonus = Number(studentSnapshot?.["Tổng điểm thưởng"] || 0);
+      let calculatedTotalBonus = 0;
+      if (sessionsSnapshot) {
+        Object.values(sessionsSnapshot).forEach((session: any) => {
+          const records = session["Điểm danh"] || [];
+          records.forEach((record: any) => {
+            if (record["Student ID"] === selectedStudentForRedeem.id) {
+              const bonusPoints = Number(record["Điểm thưởng"] || 0);
+              calculatedTotalBonus += bonusPoints;
+            }
+          });
+        });
+      }
+
+      // ✅ FIX: Trừ đi tổng điểm đã đổi trước đó
+      const redeemHistoryRef = ref(database, "datasheet/Đổi_thưởng");
+      const redeemSnapshot = await new Promise<any>((resolve) => {
+        onValue(redeemHistoryRef, (snapshot) => {
+          resolve(snapshot.val());
+        }, { onlyOnce: true });
+      });
+
+      let totalRedeemed = 0;
+      if (redeemSnapshot) {
+        Object.values(redeemSnapshot).forEach((redeem: any) => {
+          if (redeem["Student ID"] === selectedStudentForRedeem.id) {
+            totalRedeemed += Number(redeem["Điểm đổi"] || 0);
+          }
+        });
+      }
+
+      // ✅ FIX: Tính điểm thưởng còn lại
+      const currentTotalBonus = calculatedTotalBonus - totalRedeemed;
       
       if (pointsToRedeem > currentTotalBonus) {
-        message.error(`Không đủ điểm thưởng. Hiện có: ${currentTotalBonus} điểm`);
+        message.error(`Không đủ điểm thưởng. Hiện có: ${currentTotalBonus.toFixed(1)} điểm (Tích lũy: ${calculatedTotalBonus.toFixed(1)}, Đã đổi: ${totalRedeemed.toFixed(1)})`);
         return;
       }
 
@@ -475,21 +587,18 @@ const AttendanceSessionPage = () => {
         "Ngày đổi": dayjs().format("YYYY-MM-DD"),
         "Thời gian đổi": redeemTime,
         "Người đổi": redeemer,
+        "Tổng điểm tích lũy": calculatedTotalBonus,
+        "Tổng điểm đã đổi trước đó": totalRedeemed,
         "Tổng điểm trước khi đổi": currentTotalBonus,
         "Tổng điểm sau khi đổi": newTotalBonus,
         Timestamp: redeemTime,
       };
 
-      const redeemHistoryRef = ref(database, "datasheet/Đổi_thưởng");
-      const newRedeemRef = push(redeemHistoryRef);
+      const redeemHistoryRef2 = ref(database, "datasheet/Đổi_thưởng");
+      const newRedeemRef = push(redeemHistoryRef2);
       await set(newRedeemRef, redeemData);
 
-      // Update student's total bonus points
-      await update(studentRef, {
-        "Tổng điểm thưởng": newTotalBonus,
-      });
-
-      message.success(`Đã đổi ${pointsToRedeem} điểm thưởng. Còn lại: ${newTotalBonus} điểm`);
+      message.success(`Đã đổi ${pointsToRedeem} điểm thưởng. Còn lại: ${newTotalBonus.toFixed(1)} điểm`);
       setIsRedeemModalOpen(false);
       setSelectedStudentForRedeem(null);
       redeemForm.resetFields();
@@ -842,6 +951,26 @@ const AttendanceSessionPage = () => {
             checked={attendanceRecord?.["Vắng có phép"] || false}
             onChange={(e) =>
               handleAbsentWithPermissionChange(record.id, e.target.checked)
+            }
+            disabled={isReadOnly}
+          />
+        );
+      },
+    },
+    {
+      title: "Vắng không phép",
+      key: "no-permission",
+      width: 130,
+      render: (_: any, record: Student) => {
+        const attendanceRecord = attendanceRecords.find(
+          (r) => r["Student ID"] === record.id
+        );
+        if (attendanceRecord?.["Có mặt"]) return "-";
+        return (
+          <Checkbox
+            checked={attendanceRecord?.["Vắng không phép"] || false}
+            onChange={(e) =>
+              handleAbsentWithoutPermissionChange(record.id, e.target.checked)
             }
             disabled={isReadOnly}
           />
@@ -1239,6 +1368,7 @@ const AttendanceSessionPage = () => {
         onCancel={() => {
           setIsRedeemModalOpen(false);
           setSelectedStudentForRedeem(null);
+          setCurrentAvailableBonus(0);
           redeemForm.resetFields();
         }}
         okText="Xác nhận đổi"
@@ -1249,6 +1379,12 @@ const AttendanceSessionPage = () => {
           <div style={{ marginBottom: 16, padding: 12, backgroundColor: "#f5f5f5", borderRadius: 4 }}>
             <div><strong>Học sinh:</strong> {selectedStudentForRedeem["Họ và tên"]}</div>
             <div><strong>Mã học sinh:</strong> {selectedStudentForRedeem["Mã học sinh"] || "-"}</div>
+            <div style={{ marginTop: 12, padding: 8, backgroundColor: "#e6f7ff", borderRadius: 4, border: "1px solid #1890ff" }}>
+              <div style={{ color: "#1890ff", fontSize: 14 }}>💰 Tổng điểm thưởng hiện có:</div>
+              <div style={{ fontSize: 24, fontWeight: "bold", color: "#52c41a" }}>
+                {currentAvailableBonus.toFixed(1)} điểm
+              </div>
+            </div>
           </div>
         )}
         <Form form={redeemForm} layout="vertical">
