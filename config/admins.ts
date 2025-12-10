@@ -1,11 +1,10 @@
 // Danh sách email admin
-// Chỉ những email này mới có quyền admin
 export const ADMIN_EMAILS = [
     'tskiet2811@gmail.com',
     'it_dev@giaphu.co',
-    'mrliemkhiet@gmail.com',  // Thêm email admin mới
-    'htdat2711@gmail.com',    // Thêm email admin mới
-    'hoangthuhue191103@gmail.com', // Có vị trí Admin trong DB
+    'mrliemkhiet@gmail.com', // Thêm email admin mới
+    'htdat2711@gmail.com',   
+    'hoangthuhue191103@gmail.com', 
     "tskiet2811@gmail.com"
 ];
 
