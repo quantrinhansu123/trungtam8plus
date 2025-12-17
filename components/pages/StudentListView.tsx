@@ -448,33 +448,28 @@ const StudentListView: React.FC = () => {
 
     let filteredStudents = students;
 
-    // 🔒 PERMISSION FILTER: Admin sees all, Teacher sees only their students
-    if (!userProfile?.isAdmin && userProfile?.teacherName) {
-      console.log("❌ TEACHER MODE ACTIVATED - Filtering students");
-      const teacherName = userProfile.uid;
+    // 🔒 PERMISSION FILTER: Admin sees all, Teacher sees only students in their classes
+    if (!userProfile?.isAdmin && userProfile?.role === "teacher") {
+      console.log("❌ TEACHER MODE ACTIVATED - Filtering students by classes");
+      const teacherId = userProfile?.teacherId || userProfile?.uid;
 
-      // Get unique student names from events taught by this teacher
-      const teacherStudentNames = new Set<string>();
-      scheduleEvents.forEach((event) => {
-        if (event["Teacher ID"] === teacherName && event["Học sinh"]) {
-          event["Học sinh"].forEach((name) => teacherStudentNames.add(name));
+      // Collect student IDs from classes where this teacher is assigned
+      const teacherStudentIds = new Set<string>();
+      classes.forEach((c) => {
+        const match = c["Teacher ID"] === teacherId || c["Teacher ID"] === userProfile?.uid;
+        if (match) {
+          const sids = c["Student IDs"] || [];
+          sids.forEach((id: string) => teacherStudentIds.add(id));
         }
       });
 
-      console.log(
-        `👨‍🏫 Teacher ${teacherName} students:`,
-        Array.from(teacherStudentNames)
-      );
+      console.log(`👨‍🏫 Teacher ${teacherId} student IDs:`, Array.from(teacherStudentIds));
 
-      // Filter students to only show those in teacher's events
-      filteredStudents = students.filter((student) =>
-        teacherStudentNames.has(student["Họ và tên"])
-      );
-      console.log(
-        `🔒 Filtered to ${filteredStudents.length} students for teacher`
-      );
+      // Filter students to only those enrolled in teacher's classes
+      filteredStudents = students.filter((student) => teacherStudentIds.has(student.id));
+      console.log(`🔒 Filtered to ${filteredStudents.length} students for teacher`);
     } else {
-      console.log("✅ ADMIN MODE ACTIVATED - Showing all students");
+      console.log("✅ ADMIN/MANAGER MODE - Showing all students");
     }
     // Admin sees all students
 
