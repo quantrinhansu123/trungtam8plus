@@ -124,18 +124,18 @@ const AdminSchedule = () => {
     newValues?: any; // Chỉ dùng cho edit
   } | null>(null);
 
-  // Màu sắc cho từng giáo viên (Bug 2)
+  // Màu sắc đậm cho từng giáo viên (Cập nhật màu đậm hơn)
   const TEACHER_COLOR_PALETTE = [
-    { bg: "#e6f7ff", border: "#1890ff", text: "#1890ff" }, // blue
-    { bg: "#fff7e6", border: "#fa8c16", text: "#fa8c16" }, // orange
-    { bg: "#f6ffed", border: "#52c41a", text: "#52c41a" }, // green
-    { bg: "#fff0f6", border: "#eb2f96", text: "#eb2f96" }, // pink
-    { bg: "#f9f0ff", border: "#722ed1", text: "#722ed1" }, // purple
-    { bg: "#e6fffb", border: "#13c2c2", text: "#13c2c2" }, // cyan
-    { bg: "#fffbe6", border: "#faad14", text: "#faad14" }, // yellow
-    { bg: "#f0f5ff", border: "#2f54eb", text: "#2f54eb" }, // geekblue
-    { bg: "#fcffe6", border: "#a0d911", text: "#a0d911" }, // lime
-    { bg: "#fff1f0", border: "#ff4d4f", text: "#ff4d4f" }, // red
+    { bg: "#0050b3", border: "#003a8c", text: "#ffffff" }, // dark blue
+    { bg: "#d46b08", border: "#ad4e00", text: "#ffffff" }, // dark orange
+    { bg: "#389e0d", border: "#237804", text: "#ffffff" }, // dark green
+    { bg: "#c41d7f", border: "#9e1068", text: "#ffffff" }, // dark pink
+    { bg: "#531dab", border: "#391085", text: "#ffffff" }, // dark purple
+    { bg: "#08979c", border: "#006d75", text: "#ffffff" }, // dark cyan
+    { bg: "#d48806", border: "#ad6800", text: "#ffffff" }, // dark yellow
+    { bg: "#1d39c4", border: "#10239e", text: "#ffffff" }, // dark geekblue
+    { bg: "#7cb305", border: "#5b8c00", text: "#ffffff" }, // dark lime
+    { bg: "#cf1322", border: "#a8071a", text: "#ffffff" }, // dark red
   ];
 
   // Map lưu màu đã assign cho giáo viên
@@ -1282,7 +1282,7 @@ const AdminSchedule = () => {
                     key={dayIndex}
                     style={{
                       flex: 1,
-                      minWidth: "140px",
+                      minWidth: "180px",
                       borderRight: dayIndex < 6 ? "1px solid #f0f0f0" : "none",
                       position: "relative",
                     }}
@@ -1413,7 +1413,7 @@ const AdminSchedule = () => {
                               width: width,
                               height: Math.max(height, 50),
                               backgroundColor: colorScheme.bg,
-                              borderLeft: `3px solid ${colorScheme.border}`,
+                              borderLeft: `4px solid ${colorScheme.border}`,
                               borderRadius: "4px",
                               padding: "4px 6px",
                               fontSize: "11px",
@@ -1421,16 +1421,18 @@ const AdminSchedule = () => {
                               cursor: "pointer",
                               opacity: isDragging ? 0.5 : 1,
                               zIndex: 2,
-                              boxShadow: "0 1px 2px rgba(0,0,0,0.1)",
+                              boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
                               transition: "all 0.2s",
                             }}
                             onMouseEnter={(e) => {
-                              e.currentTarget.style.boxShadow = "0 2px 8px rgba(0,0,0,0.15)";
+                              e.currentTarget.style.boxShadow = "0 4px 12px rgba(0,0,0,0.2)";
                               e.currentTarget.style.zIndex = "15";
+                              e.currentTarget.style.transform = "translateY(-1px)";
                             }}
                             onMouseLeave={(e) => {
-                              e.currentTarget.style.boxShadow = "0 1px 2px rgba(0,0,0,0.1)";
+                              e.currentTarget.style.boxShadow = "0 2px 4px rgba(0,0,0,0.1)";
                               e.currentTarget.style.zIndex = "2";
+                              e.currentTarget.style.transform = "translateY(0)";
                             }}
                             onClick={() => navigate(`/workspace/classes/${event.class.id}/history`)}
                           >
@@ -1464,19 +1466,19 @@ const AdminSchedule = () => {
                                 placement="right"
                               >
                                 <div style={{ height: "100%" }}>
-                                  <div style={{ fontWeight: "bold", color: colorScheme.border, marginBottom: "2px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                  <div style={{ fontWeight: "bold", color: colorScheme.text, marginBottom: "2px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                                     {event.class["Tên lớp"]}
                                   </div>
-                                  <div style={{ color: "#666", fontSize: "10px" }}>
+                                  <div style={{ color: colorScheme.text, fontSize: "10px", opacity: 0.9 }}>
                                     {event.schedule["Giờ bắt đầu"]} - {event.schedule["Giờ kết thúc"]}
                                   </div>
                                   {height > 60 && (
-                                    <div style={{ color: "#999", fontSize: "10px", marginTop: "2px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                    <div style={{ color: colorScheme.text, fontSize: "10px", marginTop: "2px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", opacity: 0.85 }}>
                                       {getRoomName(event.class["Phòng học"]) || event.class["Giáo viên chủ nhiệm"]}
                                     </div>
                                   )}
                                   {event.isCustomSchedule && (
-                                    <Tag color="blue" style={{ fontSize: "9px", marginTop: "2px", padding: "0 4px" }}>
+                                    <Tag color="orange" style={{ fontSize: "9px", marginTop: "2px", padding: "0 4px" }}>
                                       Đã sửa
                                     </Tag>
                                   )}

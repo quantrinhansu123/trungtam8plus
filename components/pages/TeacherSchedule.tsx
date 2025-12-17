@@ -70,6 +70,33 @@ type ViewMode = "subject" | "all" | "location";
 
 const HOURS = Array.from({ length: 17 }, (_, i) => i + 6);
 
+// Màu sắc đậm hơn cho từng giáo viên - giống AdminSchedule
+const TEACHER_COLOR_PALETTE = [
+  { bg: "#0050b3", border: "#003a8c", text: "#ffffff" }, // dark blue
+  { bg: "#d46b08", border: "#ad4e00", text: "#ffffff" }, // dark orange
+  { bg: "#389e0d", border: "#237804", text: "#ffffff" }, // dark green
+  { bg: "#c41d7f", border: "#9e1068", text: "#ffffff" }, // dark pink
+  { bg: "#531dab", border: "#391085", text: "#ffffff" }, // dark purple
+  { bg: "#08979c", border: "#006d75", text: "#ffffff" }, // dark cyan
+  { bg: "#d48806", border: "#ad6800", text: "#ffffff" }, // dark yellow
+  { bg: "#1d39c4", border: "#10239e", text: "#ffffff" }, // dark geekblue
+  { bg: "#7cb305", border: "#5b8c00", text: "#ffffff" }, // dark lime
+  { bg: "#cf1322", border: "#a8071a", text: "#ffffff" }, // dark red
+];
+
+// Map lưu màu đã assign cho giáo viên
+const teacherColorMap = new Map<string, { bg: string; border: string; text: string }>();
+let colorAssignIndex = 0;
+
+const getTeacherColor = (teacherId: string, teacherName: string) => {
+  const key = teacherId || teacherName || 'unknown';
+  if (!teacherColorMap.has(key)) {
+    teacherColorMap.set(key, TEACHER_COLOR_PALETTE[colorAssignIndex % TEACHER_COLOR_PALETTE.length]);
+    colorAssignIndex++;
+  }
+  return teacherColorMap.get(key)!;
+};
+
 const TeacherSchedule = () => {
   const { userProfile } = useAuth();
   const { classes, loading } = useClasses();
@@ -910,6 +937,7 @@ const TeacherSchedule = () => {
                     key={dayIndex}
                     style={{
                       flex: 1,
+                      minWidth: "180px",
                       borderRight: dayIndex < 6 ? "1px solid #f0f0f0" : "none",
                       position: "relative",
                       backgroundColor: isDragOver 
@@ -976,6 +1004,12 @@ const TeacherSchedule = () => {
                       const isDragging = draggingEvent?.class.id === event.class.id && 
                                          draggingEvent?.date.isSame(event.date, "day");
 
+                      // Màu sắc theo GIÁO VIÊN - giống như AdminSchedule
+                      const colorScheme = getTeacherColor(
+                        event.class["Teacher ID"] || "",
+                        event.class["Giáo viên chủ nhiệm"] || ""
+                      );
+
                       return (
                         <div
                           key={idx}
@@ -988,9 +1022,9 @@ const TeacherSchedule = () => {
                             left: `${leftPercent}%`,
                             width: `${widthPercent - 1}%`,
                             height: `${height - 4}px`,
-                            backgroundColor: event.isCustomSchedule ? "#fff7e6" : "#e6f7ff",
-                            border: `1px solid ${event.isCustomSchedule ? "#ffa940" : "#69c0ff"}`,
-                            borderLeft: `3px solid ${event.isCustomSchedule ? "#fa8c16" : "#1890ff"}`,
+                            backgroundColor: colorScheme.bg,
+                            border: `1px solid ${colorScheme.border}`,
+                            borderLeft: `4px solid ${colorScheme.border}`,
                             borderRadius: "4px",
                             padding: "4px 6px",
                             cursor: "grab",
@@ -998,16 +1032,17 @@ const TeacherSchedule = () => {
                             transition: "all 0.2s",
                             zIndex: 1,
                             opacity: isDragging ? 0.5 : 1,
+                            boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
                           }}
                           onMouseEnter={(e) => {
-                            e.currentTarget.style.backgroundColor = event.isCustomSchedule ? "#ffd591" : "#bae7ff";
+                            e.currentTarget.style.boxShadow = "0 4px 12px rgba(0,0,0,0.2)";
                             e.currentTarget.style.zIndex = "10";
-                            e.currentTarget.style.boxShadow = "0 2px 8px rgba(0,0,0,0.15)";
+                            e.currentTarget.style.transform = "translateY(-1px)";
                           }}
                           onMouseLeave={(e) => {
-                            e.currentTarget.style.backgroundColor = event.isCustomSchedule ? "#fff7e6" : "#e6f7ff";
+                            e.currentTarget.style.boxShadow = "0 2px 4px rgba(0,0,0,0.1)";
                             e.currentTarget.style.zIndex = "1";
-                            e.currentTarget.style.boxShadow = "none";
+                            e.currentTarget.style.transform = "translateY(0)";
                           }}
                         >
                           {/* Edit Button */}
@@ -1048,12 +1083,13 @@ const TeacherSchedule = () => {
                           <div
                             style={{
                               fontWeight: "bold",
-                              fontSize: "11px",
+                              fontSize: "12px",
                               marginBottom: "2px",
                               whiteSpace: "nowrap",
                               overflow: "hidden",
                               textOverflow: "ellipsis",
                               paddingRight: "20px",
+                              color: colorScheme.text,
                             }}
                             onClick={() =>
                               navigate(
@@ -1072,8 +1108,9 @@ const TeacherSchedule = () => {
                           <div
                             style={{
                               fontSize: "10px",
-                              color: "#666",
+                              color: colorScheme.text,
                               marginBottom: "2px",
+                              opacity: 0.9,
                             }}
                           >
                             {event.schedule["Giờ bắt đầu"]} - {event.schedule["Giờ kết thúc"]}
@@ -1082,11 +1119,12 @@ const TeacherSchedule = () => {
                             <div
                               style={{
                                 fontSize: "9px",
-                                color: "#999",
+                                color: colorScheme.text,
                                 whiteSpace: "nowrap",
                                 overflow: "hidden",
                                 textOverflow: "ellipsis",
                                 marginBottom: "2px",
+                                opacity: 0.85,
                               }}
                             >
                               <EnvironmentOutlined /> {getRoomName(event.class["Phòng học"]) || event.schedule["Địa điểm"]}
@@ -1095,10 +1133,11 @@ const TeacherSchedule = () => {
                           <div
                             style={{
                               fontSize: "9px",
-                              color: "#999",
+                              color: colorScheme.text,
                               whiteSpace: "nowrap",
                               overflow: "hidden",
                               textOverflow: "ellipsis",
+                              opacity: 0.85,
                             }}
                           >
                             <BookOutlined /> {subjectMap[event.class["Môn học"]] || event.class["Môn học"]}
