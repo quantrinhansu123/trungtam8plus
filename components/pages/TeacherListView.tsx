@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useAuth } from "../../contexts/AuthContext";
 import type { ScheduleEvent } from "../../types";
-import { DATABASE_URL_BASE } from "@/firebase";
+import { DATABASE_URL_BASE, database } from "@/firebase";
+import { ref, onValue, get } from "firebase/database";
+import { subjectOptions } from "@/utils/selectOptions";
 import {
   Button,
   Input,
@@ -74,9 +76,53 @@ const months = [
   "Tháng 12",
 ];
 
-// Helper function to get teacher name
-const getTeacherName = (teacher: Teacher): string => {
-  return teacher["Họ và tên"] || teacher["Tên giáo viên"] || teacher.id || "";
+const subjectLabelLookup: Record<string, string> = subjectOptions.reduce(
+  (acc, option) => {
+    acc[option.value.toLowerCase()] = option.label;
+    acc[option.label.toLowerCase()] = option.label;
+    return acc;
+  },
+  {} as Record<string, string>
+);
+
+const getSubjectLabelFromValue = (subject?: any): string => {
+  if (!subject) return "Chưa phân loại";
+  const normalized = String(subject).trim();
+  const lookupKey = normalized.toLowerCase();
+  return subjectLabelLookup[lookupKey] || normalized;
+};
+
+const parseSalaryValue = (value: any): number => {
+  if (value === null || value === undefined) return 0;
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : 0;
+  }
+  const numeric = String(value).replace(/[^\d.-]/g, "");
+  return numeric ? Number(numeric) : 0;
+};
+
+const getTuitionFromClassSession = (
+  classData: any,
+  session: any,
+  teacher?: Teacher
+): number => {
+  const candidates = [
+    classData?.["Học phí mỗi buổi"],
+    classData?.["Học phí"],
+    classData?.["Tuition per session"],
+    classData?.["Tuition"] || classData?.["price"] || classData?.["Giá"] || classData?.["Price"],
+    session?.["Học phí mỗi buổi"],
+    session?.["Học phí"],
+    session?.["Tuition per session"],
+    session?.["Tuition"] || session?.["Giá"] || session?.["Price"],
+    classData?.["Lương GV"],
+    teacher?.["Lương theo buổi"],
+  ];
+  for (const candidate of candidates) {
+    const salary = parseSalaryValue(candidate);
+    if (salary > 0) return salary;
+  }
+  return 0;
 };
 
 interface Teacher {
@@ -157,6 +203,35 @@ const TeacherListView: React.FC = () => {
     });
   }, [currentUser, userProfile]);
 
+  // 🔄 Refresh data when user focuses on window/tab
+  useEffect(() => {
+    const handleFocus = () => {
+      console.log("👁️ Window focused - refreshing attendance data...");
+      const sessionsRef = ref(database, "datasheet/Điểm_danh_sessions");
+      get(sessionsRef).then((snapshot) => {
+        const data = snapshot.val();
+        if (data) {
+          const sessionsArray = Object.keys(data).map((key) => ({
+            id: key,
+            ...data[key],
+          }));
+          console.log("🔄 Refreshed attendance sessions:", {
+            total: sessionsArray.length,
+            timestamp: new Date().toISOString(),
+          });
+          setAttendanceSessions(sessionsArray);
+        }
+      }).catch((error) => {
+        console.error("❌ Error refreshing sessions:", error);
+      });
+    };
+
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, []);
+
   // Helper to normalize name
   const normalizeName = (name: string): string => {
     if (!name) return "";
@@ -182,7 +257,16 @@ const TeacherListView: React.FC = () => {
             ...data[key],
           }));
           setTeachers(teachersArray);
-          console.log("✅ Teachers loaded:", teachersArray.length);
+          console.log("✅ Teachers loaded:", {
+            total: teachersArray.length,
+            sampleTeachers: teachersArray.slice(0, 5).map(t => ({
+              id: t.id,
+              name: getTeacherName(t),
+              "Họ và tên": t["Họ và tên"],
+            })),
+            allTeacherIds: teachersArray.map(t => t.id),
+            teacherNames: teachersArray.map(t => getTeacherName(t)),
+          });
         }
       } catch (error) {
         console.error("Error fetching teachers:", error);
@@ -191,27 +275,63 @@ const TeacherListView: React.FC = () => {
     fetchTeachers();
   }, []);
 
-  // Fetch attendance sessions (for calculating hours and sessions)
+  // Realtime listener cho attendance sessions - tự động update khi điểm danh xong
   useEffect(() => {
-    const fetchAttendanceSessions = async () => {
-      try {
-        const response = await fetch(ATTENDANCE_SESSIONS_URL);
-        const data = await response.json();
-        if (data) {
-          const sessionsArray = Object.keys(data).map((key) => ({
-            id: key,
-            ...data[key],
-          }));
-          console.log("📊 Attendance sessions loaded:", sessionsArray.length);
-          setAttendanceSessions(sessionsArray);
-        }
-        setLoading(false);
-      } catch (error) {
-        console.error("Error fetching attendance sessions:", error);
+    console.log("🎯 Setting up realtime listener for attendance sessions...");
+    
+    // Force load initial data immediately
+    const sessionsRef = ref(database, "datasheet/Điểm_danh_sessions");
+    get(sessionsRef).then((snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        const sessionsArray = Object.keys(data).map((key) => ({
+          id: key,
+          ...data[key],
+        }));
+        console.log("📊 Initial attendance sessions loaded:", {
+          total: sessionsArray.length,
+          sample: sessionsArray.slice(0, 2).map(s => ({
+            id: s.id,
+            "Class ID": s["Class ID"],
+            "Teacher ID": s["Teacher ID"],
+            "Giáo viên": s["Giáo viên"],
+            "Trạng thái": s["Trạng thái"],
+            "Ngày": s["Ngày"],
+          }))
+        });
+        setAttendanceSessions(sessionsArray);
         setLoading(false);
       }
+    }).catch((error) => {
+      console.error("❌ Error loading initial sessions:", error);
+      setLoading(false);
+    });
+    
+    // Then set up realtime listener for future updates
+    const unsubscribe = onValue(sessionsRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        const sessionsArray = Object.keys(data).map((key) => ({
+          id: key,
+          ...data[key],
+        }));
+        console.log("🔄 Attendance sessions realtime update:", {
+          total: sessionsArray.length,
+          timestamp: new Date().toISOString(),
+        });
+        setAttendanceSessions(sessionsArray);
+      } else {
+        console.log("⚠️ No attendance sessions found");
+        setAttendanceSessions([]);
+      }
+    }, (error) => {
+      console.error("❌ Error listening to attendance sessions:", error);
+    });
+    
+    return () => {
+      console.log("🔌 Unsubscribing from attendance sessions listener");
+      unsubscribe();
     };
-    fetchAttendanceSessions();
   }, []);
 
   // Fetch schedule events (for display purposes)
@@ -280,25 +400,44 @@ const TeacherListView: React.FC = () => {
     fetchStudents();
   }, []);
 
-  // Bug 4: Fetch lớp học để lấy Lương GV từ từng lớp
+  // Realtime listener cho lớp học để lấy Lương GV mới nhất
   useEffect(() => {
-    const fetchClasses = async () => {
-      try {
-        const response = await fetch(`${DATABASE_URL_BASE}/datasheet/L%E1%BB%9Bp_h%E1%BB%8Dc.json`);
-        const data = await response.json();
-        if (data) {
-          const classesArray = Object.keys(data).map((key) => ({
-            id: key,
-            ...data[key],
-          }));
-          setClasses(classesArray);
-          console.log("✅ Classes loaded for salary calculation:", classesArray.length);
-        }
-      } catch (error) {
-        console.error("Error fetching classes:", error);
+    console.log("🎯 Setting up realtime listener for classes...");
+    
+    // Force load initial data immediately
+    const classesRef = ref(database, "datasheet/Lớp_học");
+    get(classesRef).then((snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        const classesArray = Object.keys(data).map((key) => ({
+          id: key,
+          ...data[key],
+        }));
+        console.log("📚 Initial classes loaded:", classesArray.length);
+        setClasses(classesArray);
       }
-    };
-    fetchClasses();
+    }).catch((error) => {
+      console.error("❌ Error loading initial classes:", error);
+    });
+    
+    // Then set up realtime listener for future updates
+    const unsubscribe = onValue(classesRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        const classesArray = Object.keys(data).map((key) => ({
+          id: key,
+          ...data[key],
+        }));
+        setClasses(classesArray);
+        console.log("✅ Classes realtime update:", classesArray.length);
+      } else {
+        setClasses([]);
+      }
+    }, (error) => {
+      console.error("Error listening to classes:", error);
+    });
+    
+    return () => unsubscribe();
   }, []);
 
   // Bug 4: Tính tổng lương từ các lớp giáo viên dạy (lấy Lương GV từ từng lớp)
@@ -338,14 +477,141 @@ const TeacherListView: React.FC = () => {
       const classId = session["Class ID"];
       const classData = classes.find(c => c.id === classId);
       // Lấy Lương GV từ lớp, nếu không có thì dùng Lương theo buổi của giáo viên
-      const salaryForThisSession = classData?.["Lương GV"] || teacher?.["Lương theo buổi"] || 0;
-      totalSalary += Number(salaryForThisSession) || 0;
+      const salaryForThisSession = parseSalaryValue(
+        classData?.["Lương GV"] ??
+        session["Lương GV"] ??
+        teacher?.["Lương theo buổi"]
+      );
+      totalSalary += salaryForThisSession;
     });
 
     const totalSessions = filteredSessions.length;
     const avgSalaryPerSession = totalSessions > 0 ? Math.round(totalSalary / totalSessions) : 0;
 
     return { totalSalary, avgSalaryPerSession, totalSessions };
+  };
+
+  // Tính lương theo từng LỚP HỌC của giáo viên (mỗi lớp 1 dòng)
+  const calculateSalaryByClass = (
+    teacherId: string,
+    fromDate?: Date,
+    toDate?: Date
+  ): Array<{
+    classId: string;
+    classCode: string;
+    className: string;
+    subject: string;
+    totalSessions: number;
+    salaryPerSession: number;
+    totalSalary: number;
+  }> => {
+    console.log(`\n💰 Calculating salary by class for teacher: ${teacherId}`);
+    const normalizedTeacherId = String(teacherId || "").trim();
+    const teacher = teachers.find(t => t.id === teacherId);
+    const teacherName = teacher ? getTeacherName(teacher) : "";
+    
+    console.log(`   Teacher info:`, { id: teacherId, name: teacherName });
+    
+    // Lấy các sessions của giáo viên (ưu tiên completed, fallback khi chưa gắn trạng thái)
+    const teacherSessions = attendanceSessions.filter((session) => {
+      const sessionTeacher = session["Teacher ID"];
+      const normalizedSessionTeacher = String(sessionTeacher || "").trim();
+      const sessionTeacherName = session["Giáo viên"] || "";
+      const status = session["Trạng thái"];
+      const isCompleted = status === "completed" || status === "completed_session" || !status;
+      
+      const matchById = normalizedSessionTeacher === normalizedTeacherId;
+      const matchByName = teacherName && sessionTeacherName && 
+                         String(teacherName).trim() === String(sessionTeacherName).trim();
+      
+      return isCompleted && (matchById || matchByName);
+    });
+
+    console.log(`   Found ${teacherSessions.length} sessions for this teacher`);
+    if (teacherSessions.length > 0) {
+      console.log(`   Sample session:`, {
+        "Class ID": teacherSessions[0]["Class ID"],
+        "Tên lớp": teacherSessions[0]["Tên lớp"],
+        "Ngày": teacherSessions[0]["Ngày"],
+        "Trạng thái": teacherSessions[0]["Trạng thái"],
+      });
+    }
+
+    // Filter theo ngày nếu cần
+    let filteredSessions = teacherSessions;
+    if (fromDate && toDate) {
+      filteredSessions = teacherSessions.filter((session) => {
+        if (!session["Ngày"]) return false;
+        const sessionDate = new Date(session["Ngày"]);
+        return sessionDate >= fromDate && sessionDate <= toDate;
+      });
+      console.log(`   After date filter: ${filteredSessions.length} sessions`);
+    }
+
+    // Nhóm sessions theo LỚP HỌC (Class ID)
+    const classMap: Record<string, {
+      classCode: string;
+      className: string;
+      subject: string;
+      sessions: number;
+      salaryPerSession: number;
+      totalSalary: number;
+    }> = {};
+
+    filteredSessions.forEach((session) => {
+      const classId = session["Class ID"];
+      if (!classId) {
+        console.log(`   ⚠️ Session without Class ID:`, session.id);
+        return;
+      }
+
+      const classData = classes.find((c) => c.id === classId);
+      if (!classData) {
+        console.log(`   ⚠️ Class not found for classId: ${classId}`);
+      }
+
+      const classCode = classData?.["Mã lớp"] || session["Mã lớp"] || "";
+      const className = classData?.["Tên lớp"] || session["Tên lớp"] || "Lớp không xác định";
+      const rawSubject = classData?.["Môn học"] || classData?.["Subject"] || session["Môn học"];
+      const subject = getSubjectLabelFromValue(rawSubject);
+      const salaryForThisSession = getTuitionFromClassSession(classData, session, teacher);
+
+      if (!classMap[classId]) {
+        classMap[classId] = {
+          classCode,
+          className,
+          subject,
+          sessions: 0,
+          salaryPerSession: salaryForThisSession,
+          totalSalary: 0,
+        };
+        console.log(`   ➕ New class added:`, {
+          classId,
+          className,
+          rawSalary: classData?.["Học phí mỗi buổi"] ?? classData?.["Lương GV"],
+          fallbackSalary: teacher?.["Lương theo buổi"],
+          salaryPerSession: salaryForThisSession,
+        });
+      }
+
+      classMap[classId].sessions += 1;
+      classMap[classId].salaryPerSession = salaryForThisSession;
+      classMap[classId].totalSalary += salaryForThisSession;
+    });
+
+    // Chuyển đổi thành array
+    const result = Object.entries(classMap).map(([classId, data]) => ({
+      classId,
+      classCode: data.classCode,
+      className: data.className,
+      subject: data.subject,
+      totalSessions: data.sessions,
+      salaryPerSession: data.salaryPerSession,
+      totalSalary: data.totalSalary,
+    }));
+    
+    console.log(`   ✅ Result: ${result.length} classes`, result);
+    return result;
   };
 
   // Calculate total salary based on sessions taught (legacy - dùng cho trường hợp không có classes)
@@ -569,6 +835,7 @@ const TeacherListView: React.FC = () => {
 
   // Filter teachers data
   const displayTeachers = useMemo(() => {
+    console.log("\n🔄 Recalculating displayTeachers...");
     console.log("🔍 TeacherListView Permission Debug:", {
       userEmail: currentUser?.email,
       userProfile: userProfile,
@@ -577,6 +844,17 @@ const TeacherListView: React.FC = () => {
       position: userProfile?.position,
       teacherId: userProfile?.teacherId,
     });
+    console.log("📊 Current data state:", {
+      teachers: teachers.length,
+      attendanceSessions: attendanceSessions.length,
+      classes: classes.length,
+      startDate,
+      endDate,
+    });
+    console.log("👥 All teacher IDs:", teachers.map(t => ({ 
+      id: t.id, 
+      name: getTeacherName(t) 
+    })).slice(0, 5));
 
     let filtered = teachers;
 
@@ -635,38 +913,66 @@ const TeacherListView: React.FC = () => {
       });
     }
 
-    return filtered.map((teacher) => {
-      const teacherName = getTeacherName(teacher);
+    // Tạo danh sách hiển thị GOM THEO GIÁO VIÊN
+    // Mỗi giáo viên chỉ có 1 dòng, hiển thị tất cả các lớp họ dạy
+    const result: any[] = [];
+    
+    filtered.forEach((teacher) => {
       const fromDate = startDate ? new Date(startDate) : undefined;
       const toDate = endDate ? new Date(endDate) : undefined;
       const stats = calculateTeacherHours(teacher.id, fromDate, toDate);
       
-      // Bug 4: Tính lương từ các lớp thay vì từ teacher
-      const salaryFromClasses = calculateTotalSalaryFromClasses(teacher.id, fromDate, toDate);
+      // Tính lương theo từng LỚP HỌC
+      const classStats = calculateSalaryByClass(teacher.id, fromDate, toDate);
       
-      // Ưu tiên lương từ lớp, nếu không có thì dùng từ teacher
-      const salaryPerSession = salaryFromClasses.avgSalaryPerSession > 0 
-        ? salaryFromClasses.avgSalaryPerSession 
-        : (teacher["Lương theo buổi"] || 0);
-      const totalSalary = salaryFromClasses.totalSalary > 0
-        ? salaryFromClasses.totalSalary
-        : calculateTotalSalary(teacher.id, teacher["Lương theo buổi"] || 0, fromDate, toDate);
-      
-      return {
-        ...teacher,
-        ...stats,
-        salaryPerSession,
-        totalSalary,
-      };
+      if (classStats.length === 0) {
+        // Giáo viên chưa có buổi dạy nào
+        result.push({
+          ...teacher,
+          ...stats,
+          classes: [],
+          salaryPerSession: parseSalaryValue(teacher["Lương theo buổi"]),
+          totalSalary: 0,
+          totalSessions: 0,
+          uniqueKey: `${teacher.id}`,
+        });
+      } else {
+        // GOM TẤT CẢ các lớp vào 1 dòng giáo viên
+        const totalSessions = classStats.reduce((sum, c) => sum + c.totalSessions, 0);
+        const totalSalary = classStats.reduce((sum, c) => sum + c.totalSalary, 0);
+        const avgSalaryPerSession = totalSessions > 0 ? Math.round(totalSalary / totalSessions) : 0;
+        
+        result.push({
+          ...teacher,
+          ...stats,
+          classes: classStats, // Danh sách tất cả các lớp
+          salaryPerSession: avgSalaryPerSession,
+          totalSalary: totalSalary,
+          totalSessions: totalSessions,
+          uniqueKey: `${teacher.id}`,
+        });
+      }
     });
+    
+    console.log(`✅ displayTeachers result: ${result.length} teachers`);
+    if (result.length > 0) {
+      console.log(`   Sample teacher:`, {
+        name: getTeacherName(result[0]),
+        classes: result[0].classes?.length || 0,
+        totalSessions: result[0].totalSessions,
+        totalSalary: result[0].totalSalary,
+      });
+    }
+    
+    return result;
   }, [
     teachers,
     attendanceSessions,
-    classes, // Bug 4: Thêm dependency classes
+    classes,
     startDate,
     endDate,
     selectedBienChe,
-    debouncedSearchTerm, // Use debounced value instead of raw searchTerm
+    debouncedSearchTerm,
     currentUser,
     userProfile,
   ]);
@@ -693,18 +999,22 @@ const TeacherListView: React.FC = () => {
 
   // Memoized statistics for better performance
   const totalStats = useMemo(
-    () => ({
-      totalTeachers: displayTeachers.length,
-      totalGroups: sortedGroups.length,
-      totalSessions: displayTeachers.reduce(
-        (sum, t) => sum + t.totalSessions,
-        0
-      ),
-      totalHours: Math.floor(
-        displayTeachers.reduce((sum, t) => sum + t.hours * 60 + t.minutes, 0) /
-          60
-      ),
-    }),
+    () => {
+      // Đếm số giáo viên duy nhất (không trùng lặp)
+      const uniqueTeacherIds = new Set(displayTeachers.map(t => t.id));
+      return {
+        totalTeachers: uniqueTeacherIds.size,
+        totalGroups: sortedGroups.length,
+        totalSessions: displayTeachers.reduce(
+          (sum, t) => sum + t.totalSessions,
+          0
+        ),
+        totalHours: Math.floor(
+          displayTeachers.reduce((sum, t) => sum + t.hours * 60 + t.minutes, 0) /
+            60
+        ),
+      };
+    },
     [displayTeachers, sortedGroups]
   );
 
@@ -1472,20 +1782,64 @@ const TeacherListView: React.FC = () => {
               {
                 title: "#",
                 key: "index",
-                width: 60,
+                width: 50,
                 render: (_: any, __: any, index: number) => index + 1,
               },
               {
                 title: "Họ tên",
                 key: "name",
+                width: 150,
                 render: (_: any, teacher: any) => (
                   <Text strong>{getTeacherName(teacher)}</Text>
                 ),
               },
               {
+                title: "Lớp học",
+                key: "classes",
+                width: 250,
+                render: (_: any, teacher: any) => {
+                  if (!teacher.classes || teacher.classes.length === 0) {
+                    return <Text type="secondary">Chưa có buổi dạy</Text>;
+                  }
+                  return (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      {teacher.classes.map((classData: any, idx: number) => (
+                        <div key={idx} style={{ 
+                          padding: "4px 8px", 
+                          background: "#f0f5ff", 
+                          borderRadius: 4,
+                          borderLeft: "3px solid #1890ff"
+                        }}>
+                          <div>
+                            <Text strong style={{ color: "#1890ff" }}>
+                              {classData.className}
+                            </Text>
+                            <Text type="secondary" style={{ fontSize: 11, marginLeft: 8 }}>
+                              ({classData.classCode})
+                            </Text>
+                          </div>
+                          <div style={{ fontSize: 11, color: "#666" }}>
+                            <Tag color="blue" style={{ fontSize: 10, padding: "0 4px", marginRight: 4 }}>
+                              {classData.subject}
+                            </Tag>
+                            <span style={{ color: "#52c41a", fontWeight: "bold" }}>
+                              {classData.totalSessions} buổi
+                            </span>
+                            <span style={{ marginLeft: 8 }}>
+                              {classData.salaryPerSession.toLocaleString("vi-VN")} đ/buổi
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                },
+              },
+              {
                 title: "Số điện thoại",
                 dataIndex: "SĐT",
                 key: "phone",
+                width: 120,
                 render: (_: any, teacher: any) =>
                   teacher["SĐT"] || teacher["Số điện thoại"] || "-",
               },
@@ -1495,22 +1849,13 @@ const TeacherListView: React.FC = () => {
                 render: (_: any, teacher: any) =>
                   teacher["Email"] || teacher["Email công ty"] || "-",
               },
-              // {
-              //   title: "Tổng giờ dạy",
-              //   key: "hours",
-              //   align: "center" as const,
-              //   render: (_: any, teacher: any) => (
-              //     <Text strong style={{ color: "#36797f" }}>
-              //       {teacher.hours}h {teacher.minutes}p
-              //     </Text>
-              //   ),
-              // },
               {
                 title: "Buổi dạy",
                 key: "sessions",
+                width: 100,
                 align: "center" as const,
                 render: (_: any, teacher: any) => (
-                  <Tag color="red" style={{ fontWeight: "bold" }}>
+                  <Tag color={teacher.totalSessions > 0 ? "green" : "red"} style={{ fontWeight: "bold" }}>
                     {teacher.totalSessions} Buổi
                   </Tag>
                 ),
@@ -1618,11 +1963,7 @@ const TeacherListView: React.FC = () => {
                   dataSource={teachersInGroup}
                   pagination={false}
                   scroll={{ y: 600 }}
-                  rowKey={(record) =>
-                    record["Mã giáo viên"] ||
-                    record["Họ và tên"] ||
-                    Math.random().toString()
-                  }
+                  rowKey={(record) => record.id || record.uniqueKey || Math.random().toString()}
                   rowClassName="hover:bg-red-50"
                 />
               </Card>

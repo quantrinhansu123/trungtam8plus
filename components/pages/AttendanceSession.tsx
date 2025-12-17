@@ -1112,6 +1112,17 @@ const AttendanceSessionPage = () => {
 
       if (sessionId && existingSession) {
         // Update existing session
+        console.log("✅ Updating existing attendance session:", {
+          sessionId: sessionId,
+          "Class ID": existingSession["Class ID"],
+          "Tên lớp": existingSession["Tên lớp"],
+          "Teacher ID": existingSession["Teacher ID"],
+          "Giáo viên": existingSession["Giáo viên"],
+          "Ngày": existingSession["Ngày"],
+          "Old Trạng thái": existingSession["Trạng thái"],
+          "New Trạng thái": "completed"
+        });
+        
         const updateData = {
           "Trạng thái": "completed",
           "Điểm danh": attendanceRecords,
@@ -1137,6 +1148,30 @@ const AttendanceSessionPage = () => {
         await update(sessionRef, cleanedData);
       } else {
         // Create new session (only when completing)
+        // ✅ Lấy Teacher ID từ classData (đúng giáo viên của lớp), fallback sang userProfile nếu thiếu
+        const teacherId =
+          classData["Teacher ID"] ||
+          classData["Giáo viên ID"] ||
+          userProfile?.teacherId ||
+          userProfile?.uid ||
+          "";
+        const teacherName =
+          classData["Giáo viên"] ||
+          classData["Tên giáo viên"] ||
+          userProfile?.displayName ||
+          userProfile?.email ||
+          "";
+        
+        console.log("✅ Creating new attendance session:", {
+          "Class ID": classData.id,
+          "Tên lớp": classData["Tên lớp"],
+          "Teacher ID (from class)": teacherId,
+          "Giáo viên (from class)": teacherName,
+          "Ngày": sessionDate,
+          "Trạng thái": "completed",
+          "👤 Person completing": userProfile?.displayName || userProfile?.email,
+        });
+        
         const sessionData: Omit<AttendanceSession, "id"> = {
           "Mã lớp": classData["Mã lớp"],
           "Tên lớp": classData["Tên lớp"],
@@ -1144,8 +1179,8 @@ const AttendanceSessionPage = () => {
           Ngày: sessionDate,
           "Giờ bắt đầu": scheduleStartTime,
           "Giờ kết thúc": scheduleEndTime,
-          "Giáo viên": userProfile?.displayName || userProfile?.email || "",
-          "Teacher ID": userProfile?.teacherId || userProfile?.uid || "",
+          "Giáo viên": teacherName,
+          "Teacher ID": teacherId,
           "Trạng thái": "completed",
           "Điểm danh": attendanceRecords,
           "Thời gian điểm danh": attendanceInfo.time,
