@@ -158,6 +158,8 @@ const InvoicePage = () => {
   const [studentStatusFilter, setStudentStatusFilter] = useState<
     "all" | "paid" | "unpaid"
   >("all");
+  const [studentClassFilter, setStudentClassFilter] = useState<string[]>([]); // Nhiều lớp
+  const [studentTeacherFilter, setStudentTeacherFilter] = useState<string>("all"); // Lọc theo giáo viên
 
   // Trigger to force recalculation after discount update
   const [refreshTrigger, setRefreshTrigger] = useState(0);
@@ -628,41 +630,87 @@ const InvoicePage = () => {
     teacherSalaryStatus,
   ]);
 
-  // Filter student invoices - unpaid only (for main tab)
+  // Get unique classes for filter
+  const uniqueClasses = useMemo(() => {
+    return classes.map((cls) => ({
+      id: cls.id,
+      name: cls["Mã lớp"] && cls["Tên lớp"] 
+        ? `${cls["Mã lớp"]} - ${cls["Tên lớp"]}` 
+        : cls["Tên lớp"] || cls.id,
+    })).sort((a, b) => a.name.localeCompare(b.name));
+  }, [classes]);
+
+  // Get unique teachers for filter
+  const uniqueTeachers = useMemo(() => {
+    return teachers.map((teacher) => ({
+      id: teacher.id,
+      name: teacher["Họ và tên"] || teacher["Tên giáo viên"] || teacher.id,
+    })).sort((a, b) => a.name.localeCompare(b.name));
+  }, [teachers]);
+
+  // Filter student invoices with all filters
   const filteredStudentInvoices = useMemo(() => {
-    // First, show all unpaid invoices (status is not "paid")
-    const unpaidInvoices = studentInvoices.filter((invoice) => {
-      const matchSearch =
-        !studentSearchTerm ||
-        invoice.studentName
-          .toLowerCase()
-          .includes(studentSearchTerm.toLowerCase()) ||
-        invoice.studentCode
-          .toLowerCase()
-          .includes(studentSearchTerm.toLowerCase());
-
-      // Show invoices that are not paid (unpaid or undefined status)
-      // Also check that the invoice matches the selected month/year
-      const matchMonthYear = invoice.month === studentMonth && invoice.year === studentYear;
-      const matchStatus = invoice.status !== "paid";
-
-      return matchSearch && matchStatus && matchMonthYear;
-    });
+    if (!studentInvoices || !Array.isArray(studentInvoices)) {
+      return [];
+    }
     
-    console.log("🔍 Filtering invoices:");
-    console.log("  - Total studentInvoices:", studentInvoices.length);
-    console.log("  - Selected month/year:", studentMonth + 1, studentYear);
-    console.log("  - Invoice statuses:", studentInvoices.map(i => ({ 
-      name: i.studentName, 
-      status: i.status, 
-      month: i.month + 1, 
-      year: i.year 
-    })));
-    console.log("  - Unpaid invoices (status !== 'paid'):", unpaidInvoices.length);
-    console.log("  - Filtered unpaid invoices:", unpaidInvoices.map(i => i.studentName));
-    
-    return unpaidInvoices;
-  }, [studentInvoices, studentSearchTerm, studentMonth, studentYear]);
+    try {
+      return studentInvoices.filter((invoice) => {
+        if (!invoice) return false;
+        
+        // Filter by search term (name)
+        const matchSearch =
+          !studentSearchTerm ||
+          (invoice.studentName &&
+            invoice.studentName
+              .toLowerCase()
+              .includes(studentSearchTerm.toLowerCase())) ||
+          (invoice.studentCode &&
+            invoice.studentCode
+              .toLowerCase()
+              .includes(studentSearchTerm.toLowerCase()));
+
+        // Filter by month
+        const matchMonth = invoice.month !== undefined && invoice.month === studentMonth;
+        
+        // Filter by year
+        const matchYear = invoice.year !== undefined && invoice.year === studentYear;
+
+        // Filter by status
+        const matchStatus = 
+          studentStatusFilter === "all" ||
+          (studentStatusFilter === "paid" && invoice.status === "paid") ||
+          (studentStatusFilter === "unpaid" && invoice.status !== "paid");
+
+        // Filter by class - check if invoice has sessions in selected classes
+        const matchClass = 
+          studentClassFilter.length === 0 ||
+          (invoice.sessions && Array.isArray(invoice.sessions) && invoice.sessions.some((session: any) => {
+            if (!session) return false;
+            const classId = session["Class ID"];
+            return classId && studentClassFilter.includes(classId);
+          }));
+
+        // Filter by teacher - check if invoice has sessions with selected teacher
+        const matchTeacher = 
+          studentTeacherFilter === "all" ||
+          (invoice.sessions && Array.isArray(invoice.sessions) && invoice.sessions.some((session: any) => {
+            if (!session) return false;
+            const classId = session["Class ID"];
+            if (!classId) return false;
+            const classData = classes.find(c => c && c.id === classId);
+            if (!classData) return false;
+            const teacherId = classData["Teacher ID"];
+            return teacherId === studentTeacherFilter;
+          }));
+
+        return matchSearch && matchMonth && matchYear && matchStatus && matchClass && matchTeacher;
+      });
+    } catch (error) {
+      console.error("Error filtering student invoices:", error);
+      return [];
+    }
+  }, [studentInvoices, studentSearchTerm, studentMonth, studentYear, studentStatusFilter, studentClassFilter, studentTeacherFilter, classes]);
 
   // Group unpaid invoices by student
   const groupedStudentInvoices = useMemo(() => {
@@ -1430,33 +1478,33 @@ const InvoicePage = () => {
     const debtDetailsHtml =
       debtDetails.length > 0
         ? `
-      <div style="margin:6px 0;">
-        <strong>Chi tiết nợ:</strong>
-        <table style="width:100%; border-collapse: collapse; margin-top:8px; font-size:13px;">
+      <div style="margin:14px 0;">
+        <strong style="color:#1a3353; font-size:15px;">Chi tiết nợ:</strong>
+        <table style="width:100%; border-collapse: collapse; margin-top:8px; font-size:14px; border:1px solid #d9d9d9;">
           <thead>
-            <tr>
-              <th style="text-align:left; padding:6px 8px; border-bottom:1px solid #eee;">Tháng</th>
-              <th style="text-align:right; padding:6px 8px; border-bottom:1px solid #eee;">Số tiền</th>
+            <tr style="background:#1a3353; color:#ffffff;">
+              <th style="text-align:left; padding:10px 12px; border:1px solid #d9d9d9; font-weight:600;">Tháng</th>
+              <th style="text-align:right; padding:10px 12px; border:1px solid #d9d9d9; font-weight:600;">Số tiền</th>
             </tr>
           </thead>
           <tbody>
             ${debtDetails
               .map(
-                (d) => `
-              <tr>
-                <td style="padding:6px 8px;">Tháng ${d.month + 1}/${d.year}</td>
-                <td style="padding:6px 8px; text-align:right; color:#ff4d4f;">${d.amount.toLocaleString("vi-VN")} đ</td>
+                (d, idx) => `
+              <tr style="background:${idx % 2 === 0 ? '#f0f5ff' : '#ffffff'};">
+                <td style="padding:10px 12px; border:1px solid #e8e8e8;">Tháng ${d.month + 1}/${d.year}</td>
+                <td style="padding:10px 12px; text-align:right; border:1px solid #e8e8e8; color:#c40000; font-weight:600;">${d.amount.toLocaleString("vi-VN")} đ</td>
               </tr>`
               )
               .join("")}
-            <tr style="font-weight:700; background:#fafafa;">
-              <td style="padding:8px;">Tổng nợ</td>
-              <td style="padding:8px; text-align:right;">${totalDebt.toLocaleString("vi-VN")} đ</td>
+            <tr style="font-weight:700; background:#fff1f0; border-top:2px solid #c40000;">
+              <td style="padding:12px; border:1px solid #e8e8e8; color:#c40000;">Tổng nợ</td>
+              <td style="padding:12px; text-align:right; border:1px solid #e8e8e8; color:#c40000; font-size:16px;">${totalDebt.toLocaleString("vi-VN")} đ</td>
             </tr>
           </tbody>
         </table>
       </div>`
-        : `<p style="margin:6px 0;"><strong>Chi tiết nợ:</strong> Không có nợ trước đó</p>`;
+        : `<p style="margin:14px 0;"><strong style="color:#1a3353; font-size:15px;">Chi tiết nợ:</strong> <span style="color:#666;">Không có nợ</span></p>`;
     // Build current month breakdown HTML (classes and totals)
     const currentMonthRows = classRows.map((r) => ({
       subject: r.subject,
@@ -1477,7 +1525,7 @@ const InvoicePage = () => {
     const currentMonthHtml =
       currentMonthRows.length > 0
         ? `
-      <div style="margin:10px 0;">
+      <div style="margin:14px 0;">
         <strong style="color:#1a3353; font-size:15px;">Chi tiết tháng ${invoice.month + 1}:</strong>
         <table style="width:100%; border-collapse: collapse; margin-top:8px; font-size:14px; border:1px solid #d9d9d9;">
           <thead>
@@ -1497,8 +1545,8 @@ const InvoicePage = () => {
                 <td style="padding:10px 12px; border:1px solid #e8e8e8;">${subjectMap[r.subject] || r.subject}</td>
                 <td style="padding:10px 12px; border:1px solid #e8e8e8;">${r.className}</td>
                 <td style="padding:10px 12px; text-align:center; border:1px solid #e8e8e8; font-weight:600;">${r.sessions}</td>
-                <td style="padding:10px 12px; text-align:right; border:1px solid #e8e8e8;">${r.pricePerSession.toLocaleString("vi-VN")}</td>
-                <td style="padding:10px 12px; text-align:right; border:1px solid #e8e8e8; font-weight:600; color:#1890ff;">${r.totalPrice.toLocaleString("vi-VN")}</td>
+                <td style="padding:10px 12px; text-align:right; border:1px solid #e8e8e8;">${r.pricePerSession.toLocaleString("vi-VN")} đ</td>
+                <td style="padding:10px 12px; text-align:right; border:1px solid #e8e8e8; font-weight:600; color:#1890ff;">${r.totalPrice.toLocaleString("vi-VN")} đ</td>
               </tr>`
               )
               .join("")}
@@ -1507,75 +1555,171 @@ const InvoicePage = () => {
         ${
           discountAmount > 0
             ? `
-        <div style="margin-top:8px; padding:8px 12px; background:#bae7ff; border-radius:4px; border:1px solid #69c0ff;">
+        <div style="margin-top:8px; padding:10px 12px; background:#e6f7ff; border-radius:4px; border:1px solid #91d5ff;">
           <div style="display:flex; justify-content:space-between; align-items:center;">
-            <span style="color:#003a8c; font-size:13px; font-weight:600;">Miễn giảm</span>
-            <span style="color:#003a8c; font-size:14px; font-weight:700;">- ${discountAmount.toLocaleString("vi-VN")} đ</span>
+            <span style="color:#003a8c; font-size:14px; font-weight:600;">Miễn giảm học phí</span>
+            <span style="color:#003a8c; font-size:15px; font-weight:700;">- ${discountAmount.toLocaleString("vi-VN")} đ</span>
           </div>
         </div>`
             : ""
         }
       </div>`
-        : `<p style="margin:6px 0;"><strong>Chi tiết tháng ${invoice.month + 1}:</strong> Không có buổi học</p>`;
+        : `<p style="margin:14px 0;"><strong style="color:#1a3353; font-size:15px;">Chi tiết tháng ${invoice.month + 1}:</strong> <span style="color:#666;">Không có buổi học</span></p>`;
 
     const combinedTotalDue = totalDebt + netCurrentMonth;
 
+    // Get subject icons mapping
+    const getSubjectIcon = (subject: string) => {
+      const lowerSubject = subject.toLowerCase();
+      if (lowerSubject.includes("toán") || lowerSubject.includes("math")) return "fa-calculator";
+      if (lowerSubject.includes("văn") || lowerSubject.includes("literature")) return "fa-pen-nib";
+      if (lowerSubject.includes("anh") || lowerSubject.includes("english")) return "fa-language";
+      if (lowerSubject.includes("khoa") || lowerSubject.includes("science")) return "fa-flask";
+      if (lowerSubject.includes("thuyết trình") || lowerSubject.includes("presentation")) return "fa-user-tie";
+      if (lowerSubject.includes("kỹ năng") || lowerSubject.includes("skill")) return "fa-gear";
+      return "fa-book";
+    };
+
+    // Prepare subjects array for table
+    const subjectsForTable = currentMonthRows.map((r) => ({
+      subject: r.subject,
+      className: r.className || "Lớp",
+      sessions: r.sessions,
+      pricePerSession: r.pricePerSession,
+      total: r.totalPrice,
+    }));
+
+    // Get bank info
+    const bankId = "VPB";
+    const accountNo = "4319888";
+    const accountName = "NGUYEN THI HOA";
+
+    // Format debt details for display (first 2 lines)
+    const debtDetail1 = debtDetails.length > 0 
+      ? `Tháng ${debtDetails[0].month + 1}/${debtDetails[0].year}: ${debtDetails[0].amount.toLocaleString("vi-VN")} đ`
+      : "";
+    const debtDetail2 = debtDetails.length > 1
+      ? `Tháng ${debtDetails[1].month + 1}/${debtDetails[1].year}: ${debtDetails[1].amount.toLocaleString("vi-VN")} đ`
+      : "";
+
     return `
-      <div style="font-family: 'Times New Roman', serif; padding: 20px 30px; margin: 20px auto; max-width: 700px; position: relative; background: #ffffff;">
-        <div style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 0; display: flex; align-items: center; justify-content: center; pointer-events: none;">
+      <div style="font-family: 'Roboto', sans-serif; width: 100%; max-width: 800px; background: #fff; box-shadow: 0 5px 15px rgba(0,0,0,0.1); overflow: hidden; position: relative; border-radius: 8px; margin: 0 auto;">
+        <!-- Watermark -->
+        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 40px; font-weight: bold; color: rgba(0,0,0,0.03); z-index: 0; pointer-events: none; white-space: nowrap;">TRUNG TÂM HỌC TẬP</div>
+
+        <!-- Background Logo, full sheet with 10% opacity on top layer -->
+        <div style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 10; display: flex; align-items: center; justify-content: center; pointer-events: none;">
           <img
-            src="/img/logo.png"
+            src="https://www.appsheet.com/template/gettablefileurl?appName=Appsheet-325045268&tableName=Kho%20%E1%BA%A3nh&fileName=Kho%20%E1%BA%A3nh_Images%2F5efd9944.%E1%BA%A2nh.120320.png"
             alt="Background Logo"
-            style="width: auto; height: 400px; max-width: 400px; object-fit: contain; opacity: 0.08; filter: grayscale(70%); user-select: none; pointer-events: none;"
+            style="width: 90%; height: 90%; max-width: 90%; max-height: 90%; object-fit: contain; opacity: 0.1; filter: grayscale(15%) brightness(1.05);"
           />
         </div>
+
         <div style="position: relative; z-index: 1;">
-          <div style="text-align: center; margin-bottom: 16px;">
-            <div style="display: inline-flex; align-items: center; gap: 12px; background: #1a3353; padding: 8px 24px; border-radius: 6px;">
-              <img src="/img/logo.png" alt="Logo" style="width: 36px; height: 36px;" />
-              <span style="color: #ffffff; font-size: 15px; font-weight: 600; letter-spacing: 1px;">TRUNG TÂM HỌC TẬP</span>
+          <!-- Header -->
+          <div style="background-color: #103458; color: #fccf6e; text-align: center; padding: 25px 10px;">
+            <div style="display: flex; align-items: center; justify-content: center; gap: 15px; margin-bottom: 15px;">
+              <img src="https://www.appsheet.com/template/gettablefileurl?appName=Appsheet-325045268&tableName=Kho%20%E1%BA%A3nh&fileName=Kho%20%E1%BA%A3nh_Images%2F323065b6.%E1%BA%A2nh.115930.png" alt="Logo Trí Tuệ 8+" style="height: 50px; width: auto; object-fit: contain;" />
+              <div style="font-size: 20px; font-weight: 500; color: #fccf6e;">Trung tâm trí tuệ 8+</div>
             </div>
-          </div>
-          <h1 style="color: #d4a33e; text-align: center; margin: 8px 0 16px; font-size: 24px; font-weight: 900; text-transform: uppercase; letter-spacing: 1px;">PHIẾU THU HỌC PHÍ THÁNG ${invoice.month + 1}</h1>
-
-          <div style="background: #f5f5f5; padding: 12px 16px; border-radius: 6px; margin-bottom: 14px;">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-              <div>
-                <p style="margin: 0; color: #1a3353; font-weight: 700; font-size: 15px;">Họ và tên: <span style="color: #000;">${invoice.studentName}</span></p>
-              </div>
-              <div>
-                <p style="margin: 0; color: #1a3353; font-weight: 600; font-size: 14px;">Khối lớp: <span style="color: #000;">${grade}</span></p>
-              </div>
-            </div>
+            <h1 style="text-transform: uppercase; font-size: 28px; font-weight: 700; letter-spacing: 1px; margin: 0;">PHIẾU THU HỌC PHÍ THÁNG ${invoice.month + 1}</h1>
           </div>
 
-          ${currentMonthHtml}
-          ${debtDetailsHtml}
-          
-          <div style="display: flex; gap: 16px; align-items: center; margin: 16px 0; margin-top: 18px;">
-            <div style="flex: 1; background: #1a3353; padding: 16px 14px; border-radius: 8px; display: flex; flex-direction: column; justify-content: center; align-items: center;">
-              <p style="margin: 0 0 8px 0; color: #ffffff; font-size: 13px; font-weight: 600; text-align: center;">TỔNG TIỀN:</p>
-              <p style="margin: 0; color: #d4a33e; font-size: 26px; font-weight: 900; text-align: center; text-shadow: 1px 1px 2px rgba(0,0,0,0.3); line-height: 1.2;">${combinedTotalDue.toLocaleString("vi-VN")} đ</p>
+          <!-- Info Section -->
+          <div style="display: flex; justify-content: space-between; padding: 30px 40px; color: #103458; font-weight: 700;">
+            <div style="width: 48%;">
+              <h3 style="text-transform: uppercase; font-size: 18px; margin-bottom: 15px; font-weight: 700;">THÔNG TIN HỌC SINH</h3>
+              <div style="margin-bottom: 8px; font-size: 15px; color: #333;"><span style="font-weight: 800;">Họ và tên:</span> ${invoice.studentName}</div>
+              <div style="margin-bottom: 8px; font-size: 15px; color: #333;"><span style="font-weight: 800;">Khối lớp:</span> ${grade || "Chưa xác định"}</div>
+            </div>
+            <div style="width: 48%;">
+              <h3 style="text-transform: uppercase; font-size: 18px; margin-bottom: 15px; font-weight: 700;">THÔNG TIN THANH TOÁN</h3>
+              <div style="margin-bottom: 8px; font-size: 15px; color: #333;"><span style="font-weight: 800;">Tên người nhận:</span> ${accountName}</div>
+              <div style="margin-bottom: 8px; font-size: 15px; color: #333;"><span style="font-weight: 800;">Số tài khoản:</span> ${accountNo}</div>
+            </div>
+              </div>
+              
+          <!-- Table -->
+          <div style="padding: 0 40px;">
+            <table style="width: 100%; border-collapse: collapse; border-radius: 10px 10px 0 0; overflow: hidden; border: 2px solid #999;">
+              <thead style="background-color: #103458; color: white;">
+                <tr>
+                  <th style="padding: 15px; text-align: center; font-weight: 600; border-right: 2px solid rgba(255,255,255,0.3);">Môn học</th>
+                  <th style="padding: 15px; text-align: center; font-weight: 600; border-right: 2px solid rgba(255,255,255,0.3);">Lớp</th>
+                  <th style="padding: 15px; text-align: center; font-weight: 600; border-right: 2px solid rgba(255,255,255,0.3);">Số buổi</th>
+                  <th style="padding: 15px; text-align: center; font-weight: 600; border-right: 2px solid rgba(255,255,255,0.3);">Giá/buổi</th>
+                  <th style="padding: 15px; text-align: center; font-weight: 600;">Thành tiền</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${subjectsForTable.map((item, index) => {
+                  return `
+                    <tr style="background-color: ${index % 2 === 0 ? '#fff' : '#eef6fb'};">
+                      <td style="padding: 12px 15px 12px 20px; text-align: left; color: #333; border-bottom: 2px solid #999; border-right: 2px solid #999;">
+                        <div style="display: flex; align-items: center; gap: 10px; font-weight: 600;">
+                          <i class="fa-solid ${getSubjectIcon(item.subject)}" style="color: #103458; width: 20px;"></i>
+                          ${subjectMap[item.subject] || item.subject}
+              </div>
+                      </td>
+                      <td style="padding: 12px 15px; text-align: center; color: #333; border-bottom: 2px solid #999; border-right: 2px solid #999; font-weight: 600;">${item.className}</td>
+                      <td style="padding: 12px 15px; text-align: center; color: #333; border-bottom: 2px solid #999; border-right: 2px solid #999; font-weight: 600;">${item.sessions}</td>
+                      <td style="padding: 12px 15px; text-align: center; color: #333; border-bottom: 2px solid #999; border-right: 2px solid #999; font-weight: 600;">${item.pricePerSession.toLocaleString("vi-VN")}</td>
+                      <td style="padding: 12px 15px; text-align: center; color: #333; border-bottom: 2px solid #999; font-weight: 600;">${item.total.toLocaleString("vi-VN")}</td>
+                    </tr>
+                  `;
+                }).join("")}
+                ${discountAmount > 0 ? `
+                <tr style="background-color: #fff0f6;">
+                  <td colspan="4" style="padding: 12px 15px 12px 20px; text-align: left; color: #333; border-bottom: 2px solid #999; border-right: 2px solid #999; font-weight: 600;">Miễn giảm</td>
+                  <td style="padding: 12px 15px; text-align: center; color: #c40000; border-bottom: 2px solid #999; font-weight: 700;">- ${discountAmount.toLocaleString("vi-VN")} đ</td>
+                </tr>
+                ` : ""}
+                <tr style="background-color: #fff1f0; border-top: 2px solid #c40000;">
+                  <td colspan="4" style="padding: 12px 15px 12px 20px; text-align: left; color: #c40000; border-bottom: 2px solid #999; border-right: 2px solid #999; font-weight: 700; font-size: 16px;">Tổng học phí tháng ${invoice.month + 1}</td>
+                  <td style="padding: 12px 15px; text-align: center; color: #c40000; border-bottom: 2px solid #999; font-weight: 700; font-size: 16px;">${currentMonthTotal.toLocaleString("vi-VN")} đ</td>
+                </tr>
+              </tbody>
+            </table>
             </div>
             
-            <div style="flex: 1; text-align: center; background: #f9f9f9; padding: 16px; border-radius: 8px; border: 2px solid #e0e0e0; display: flex; flex-direction: column; justify-content: center; align-items: center;">
-              <p style="margin: 0 0 8px 0; font-size: 12px; color: #666; font-weight: 600;">Quét mã để thanh toán</p>
-              <img
-                src="${generateVietQR(combinedTotalDue.toString(), invoice.studentName, (invoice.month + 1).toString())}"
-                alt="VietQR"
-                style="width: 170px; height: 170px; border: 1px solid #ddd; padding: 6px; border-radius: 4px; background: #fff;"
-              />
+          <!-- Footer -->
+          <div style="padding: 20px 40px 40px 40px;">
+            ${totalDebt > 0 ? `
+            <div style="display: flex; gap: 30px; margin-bottom: 30px;">
+              <div style="flex: 1.2; display: flex; flex-direction: column; justify-content: space-between;">
+                <div>
+                  <div style="background-color: #f25c78; color: white; display: inline-block; padding: 8px 15px; border-radius: 6px; font-weight: bold; margin-bottom: 10px; width: fit-content;">Chi tiết nợ</div>
+                  <div style="width: 100%; background-color: #eef6fb; border: none; height: 40px; border-radius: 8px; margin-bottom: 10px; padding: 8px 12px; font-size: 14px; color: #333; display: flex; align-items: center;">${debtDetail1 || ""}</div>
+                  <div style="width: 100%; background-color: #eef6fb; border: none; height: 40px; border-radius: 8px; margin-bottom: 10px; padding: 8px 12px; font-size: 14px; color: #333; display: flex; align-items: center;">${debtDetail2 || ""}</div>
+              </div>
+              </div>
+            </div>
+            ` : ""}
+
+            <!-- QR Code + Tổng tiền cùng hàng, căn dưới -->
+            <div style="display: flex; gap: 20px; align-items: flex-end; margin-bottom: 20px;">
+              <div style="flex: 1; background-color: white; border: 2px solid #1890ff; padding: 15px; border-radius: 8px; display: flex; align-items: center; justify-content: center; min-height: 70px;">
+                <span style="font-size: 18px; font-weight: bold; color: #333; margin-right: 5px;">
+                  TỔNG TIỀN:
+                </span>
+                <span style="color: #c40000; font-weight: bold; font-size: 20px;">${combinedTotalDue.toLocaleString("vi-VN")} đ</span>
+              </div>
+
+              <div style="flex: 0 0 200px; border: 1px solid #ddd; border-radius: 15px; padding: 10px; text-align: center; background: white;">
+                <div style="display: flex; justify-content: center; gap: 10px; margin-bottom: 5px; color: red; font-weight: bold; font-size: 12px;">
+                  <span>VIETQR</span> <span>VIETQR</span>
+                </div>
+                <img src="${generateVietQR(combinedTotalDue.toString(), invoice.studentName, (invoice.month + 1).toString())}" alt="QR Code" style="width: 100%; height: auto; display: block;" crossOrigin="anonymous" />
+                <div style="font-size: 12px; margin-top: 5px; font-weight: bold;">Quét mã để thanh toán</div>
+              </div>
+            </div>
+
+            <!-- Ghi chú -->
+            <div style="font-size: 11px; color: #666; text-align: center; line-height: 1.4; max-width: 100%;">
+              Ghi chú: Vui lòng ghi rõ nội dung chuyển khoản: ${invoice.studentName} - T${invoice.month + 1}
             </div>
           </div>
-
-          ${totalDebt > 0 ? `<p style="margin: 10px 0; padding: 8px 12px; background: #fff2e8; border-left: 4px solid #ff4d4f; color: #ff4d4f; font-size: 13px;"><strong>⚠️ Nợ các tháng trước:</strong> ${totalDebt.toLocaleString("vi-VN")} đ</p>` : ""}
-          
-          <div style="margin-top: 14px; padding: 10px 14px; background: #f0f9ff; border-radius: 6px; font-size: 12px; color: #003a8c; line-height: 1.5;">
-            <strong>Chi chú:</strong> Vui lòng ghi rõ nội dung chuyển khoản: [Tên Học Sinh] - [Tháng ${invoice.month + 1}]<br/>
-            <strong>Số tài khoản:</strong> 4319888 - NGUYEN THI HOA
-          </div>
-
-          <p style="text-align: center; color: #999; font-size: 11px; margin-top: 14px;">Ngày xuất: ${new Date().toLocaleDateString("vi-VN")}</p>
         </div>
       </div>
     `;
@@ -1669,7 +1813,7 @@ const InvoicePage = () => {
       <div style="font-family: 'Times New Roman', serif; padding: 40px 20px 20px 20px; position: relative;">
         <div style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 0; display: flex; align-items: center; justify-content: center; pointer-events: none;">
           <img
-            src="/img/logo.png"
+            src="https://www.appsheet.com/template/gettablefileurl?appName=Appsheet-325045268&tableName=Kho%20%E1%BA%A3nh&fileName=Kho%20%E1%BA%A3nh_Images%2F323065b6.%E1%BA%A2nh.115930.png"
             alt="Background Logo"
             style="width: auto; height: 520px; max-width: 520px; object-fit: contain; opacity: 0.08; filter: grayscale(50%); user-select: none; pointer-events: none;"
           />
@@ -2134,17 +2278,6 @@ const InvoicePage = () => {
           <Text strong style={{ color: "#1890ff", fontSize: "14px" }}>
             {record.finalAmount.toLocaleString("vi-VN")} đ
           </Text>
-        ),
-      },
-      {
-        title: "Trạng thái",
-        dataIndex: "status",
-        key: "status",
-        width: 120,
-        render: (status: "paid" | "unpaid") => (
-          <Tag color={status === "paid" ? "green" : "red"}>
-            {status === "paid" ? "Đã thu" : "Chưa thu"}
-          </Tag>
         ),
       },
       {
@@ -2742,20 +2875,93 @@ const InvoicePage = () => {
         <Row gutter={[16, 16]}>
           <Col xs={24} sm={12} md={6}>
             <Text strong className="block mb-2">
-              Tháng
+              Lọc theo lớp
             </Text>
-            <DatePicker
-              picker="month"
-              value={dayjs().month(studentMonth).year(studentYear)}
-              onChange={(date) => {
-                if (date) {
-                  setStudentMonth(date.month());
-                  setStudentYear(date.year());
-                }
-              }}
+            <Select
+              mode="multiple"
+              value={studentClassFilter}
+              onChange={setStudentClassFilter}
               style={{ width: "100%" }}
+              placeholder="Tất cả các lớp"
+              showSearch
+              filterOption={(input, option) => {
+                const label = option?.label || option?.children || "";
+                return String(label).toLowerCase().includes(input.toLowerCase());
+              }}
+            >
+              {uniqueClasses.map((cls) => (
+                <Select.Option key={cls.id} value={cls.id} label={cls.name}>
+                  {cls.name}
+                </Select.Option>
+              ))}
+            </Select>
+          </Col>
+          <Col xs={24} sm={12} md={6}>
+            <Text strong className="block mb-2">
+              Tìm theo tên
+            </Text>
+            <Input
+              placeholder="Nhập tên học sinh..."
+              prefix={<SearchOutlined />}
+              value={studentSearchTerm}
+              onChange={(e) => setStudentSearchTerm(e.target.value.trim())}
+              allowClear
             />
           </Col>
+          <Col xs={24} sm={12} md={4}>
+            <Text strong className="block mb-2">
+              Tháng
+            </Text>
+            <Select
+              value={studentMonth + 1}
+              onChange={(month) => setStudentMonth(month - 1)}
+              style={{ width: "100%" }}
+            >
+              {Array.from({ length: 12 }, (_, i) => (
+                <Option key={i + 1} value={i + 1}>
+                  Tháng {i + 1}
+                </Option>
+              ))}
+            </Select>
+          </Col>
+          <Col xs={24} sm={12} md={4}>
+            <Text strong className="block mb-2">
+              Năm
+            </Text>
+            <Select
+              value={studentYear}
+              onChange={setStudentYear}
+              style={{ width: "100%" }}
+            >
+              {Array.from({ length: 5 }, (_, i) => {
+                const year = dayjs().year() - 2 + i;
+                return (
+                  <Option key={year} value={year}>
+                    {year}
+                  </Option>
+                );
+              })}
+            </Select>
+          </Col>
+          <Col xs={24} sm={12} md={4}>
+            <Text strong className="block mb-2">
+              Giáo viên
+            </Text>
+            <Select
+              value={studentTeacherFilter}
+              onChange={setStudentTeacherFilter}
+              style={{ width: "100%" }}
+            >
+              <Option value="all">Tất cả</Option>
+              {uniqueTeachers.map((teacher) => (
+                <Option key={teacher.id} value={teacher.id}>
+                  {teacher.name}
+                </Option>
+              ))}
+            </Select>
+          </Col>
+        </Row>
+        <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
           <Col xs={24} sm={12} md={6}>
             <Text strong className="block mb-2">
               Trạng thái
@@ -2770,24 +2976,12 @@ const InvoicePage = () => {
               <Option value="paid">Đã thanh toán</Option>
             </Select>
           </Col>
-          <Col xs={24} sm={12} md={12}>
-            <Text strong className="block mb-2">
-              Tìm kiếm
-            </Text>
-            <Input
-              placeholder="Tìm theo tên hoặc mã học sinh..."
-              prefix={<SearchOutlined />}
-              value={studentSearchTerm}
-              onChange={(e) => setStudentSearchTerm(e.target.value.trim())}
-              allowClear
-            />
-          </Col>
         </Row>
       </Card>
 
       {/* Summary */}
       <Row gutter={16} className="mb-4">
-        <Col span={8}>
+        <Col span={6}>
           <Card>
             <Text type="secondary">Tổng học sinh</Text>
             <Title level={3} style={{ margin: "10px 0", color: "#36797f" }}>
@@ -2795,12 +2989,33 @@ const InvoicePage = () => {
             </Title>
           </Card>
         </Col>
-        <Col span={8}>
+        <Col span={6}>
+          <Card>
+            <Text type="secondary">Tổng số buổi</Text>
+            <Title level={3} style={{ margin: "10px 0", color: "#1890ff" }}>
+              {groupedStudentInvoices
+                .reduce((sum, i) => sum + i.totalSessions, 0)
+                .toLocaleString("vi-VN")}
+            </Title>
+          </Card>
+        </Col>
+        <Col span={6}>
           <Card>
             <Text type="secondary">Tổng thu</Text>
             <Title level={3} style={{ margin: "10px 0", color: "#36797f" }}>
               {groupedStudentInvoices
                 .reduce((sum, i) => sum + i.finalAmount, 0)
+                .toLocaleString("vi-VN")}{" "}
+              đ
+            </Title>
+          </Card>
+        </Col>
+        <Col span={6}>
+          <Card>
+            <Text type="secondary">Tổng tiền (trước giảm)</Text>
+            <Title level={3} style={{ margin: "10px 0", color: "#52c41a" }}>
+              {groupedStudentInvoices
+                .reduce((sum, i) => sum + i.totalAmount, 0)
                 .toLocaleString("vi-VN")}{" "}
               đ
             </Title>
@@ -2881,7 +3096,7 @@ const InvoicePage = () => {
 
       {/* Summary */}
       <Row gutter={16} className="mb-4">
-        <Col span={8}>
+        <Col span={6}>
           <Card>
             <Text type="secondary">Tổng phiếu đã thanh toán</Text>
             <Title level={3} style={{ margin: "10px 0", color: "#52c41a" }}>
@@ -2889,12 +3104,33 @@ const InvoicePage = () => {
             </Title>
           </Card>
         </Col>
-        <Col span={8}>
+        <Col span={6}>
+          <Card>
+            <Text type="secondary">Tổng số buổi</Text>
+            <Title level={3} style={{ margin: "10px 0", color: "#1890ff" }}>
+              {filteredPaidStudentInvoices
+                .reduce((sum, i) => sum + (i.totalSessions || 0), 0)
+                .toLocaleString("vi-VN")}
+            </Title>
+          </Card>
+        </Col>
+        <Col span={6}>
           <Card>
             <Text type="secondary">Tổng đã thu</Text>
             <Title level={3} style={{ margin: "10px 0", color: "#52c41a" }}>
               {filteredPaidStudentInvoices
                 .reduce((sum, i) => sum + (i.finalAmount || 0), 0)
+                .toLocaleString("vi-VN")}{" "}
+              đ
+            </Title>
+          </Card>
+        </Col>
+        <Col span={6}>
+          <Card>
+            <Text type="secondary">Tổng tiền (trước giảm)</Text>
+            <Title level={3} style={{ margin: "10px 0", color: "#52c41a" }}>
+              {filteredPaidStudentInvoices
+                .reduce((sum, i) => sum + (i.totalAmount || 0), 0)
                 .toLocaleString("vi-VN")}{" "}
               đ
             </Title>

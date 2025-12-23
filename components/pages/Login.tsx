@@ -76,25 +76,63 @@ const Login: React.FC = () => {
   }, [currentUser, userProfile, navigate]);
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4">
-      <div className="max-w-md w-full">
+    <div 
+      className="min-h-screen flex items-center justify-center p-4 relative"
+      style={{
+        backgroundImage: 'url(/img/banner.png)',
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat',
+        backgroundAttachment: 'fixed',
+      }}
+    >
+      {/* Overlay mờ chuyên nghiệp */}
+      <div 
+        className="absolute inset-0"
+        style={{
+          backgroundColor: 'rgba(0, 0, 0, 0.35)',
+          backdropFilter: 'blur(6px)',
+        }}
+      />
+      
+      {/* Nội dung chính */}
+      <div className="max-w-md w-full relative z-10">
         {/* Logo and Title */}
         <div className="text-center mb-6 sm:mb-8">
           <img
-            src="/img/logo.png"
+            src="https://www.appsheet.com/template/gettablefileurl?appName=Appsheet-325045268&tableName=Kho%20%E1%BA%A3nh&fileName=Kho%20%E1%BA%A3nh_Images%2F323065b6.%E1%BA%A2nh.115930.png"
             alt="Trí Tuệ 8+ Logo"
-            className="mx-auto mb-4 w-36 h-36"
+            className="mx-auto mb-4 w-36 h-36 drop-shadow-lg"
           />
-          <h1 className="text-3xl sm:text-4xl font-bold text-[#36797f] mb-2">
+          <h1
+            className="text-3xl sm:text-4xl font-bold text-[#36797f] mb-2 drop-shadow-sm"
+            style={{
+              WebkitTextStroke: "1.2px white",
+              textShadow:
+                "0 0 8px rgba(255,255,255,0.8), 0 0 12px rgba(255,255,255,0.6)",
+            }}
+          >
             Trí Tuệ 8+
           </h1>
-          <p className="text-gray-600 text-base sm:text-lg">
+          <p
+            className="text-gray-600 text-base sm:text-lg drop-shadow-sm"
+            style={{
+              WebkitTextStroke: "0.8px white",
+              textShadow: "0 0 6px rgba(255,255,255,0.7)",
+            }}
+          >
             Hệ thống quản lý giáo dục thông minh
           </p>
         </div>
 
         {/* Login Card */}
-        <div className="bg-white rounded-2xl shadow-2xl p-6 sm:p-8 border-2 border-[#36797f]">
+        <div 
+          className="bg-white rounded-2xl shadow-2xl p-6 sm:p-8 border-2 border-[#36797f]"
+          style={{
+            backgroundColor: 'rgba(255, 255, 255, 0.95)',
+            backdropFilter: 'blur(10px)',
+          }}
+        >
           <h2 className="text-xl sm:text-2xl font-bold text-center text-gray-800 mb-2">
             Đăng nhập hệ thống
           </h2>

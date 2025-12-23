@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import {
   Card,
   Button,
@@ -13,6 +13,8 @@ import {
   DatePicker,
   message,
   Tag,
+  Popover,
+  Input,
 } from "antd";
 import {
   LeftOutlined,
@@ -21,6 +23,10 @@ import {
   BookOutlined,
   EnvironmentOutlined,
   EditOutlined,
+  MenuUnfoldOutlined,
+  MenuFoldOutlined,
+  ExpandOutlined,
+  CompressOutlined,
 } from "@ant-design/icons";
 import { useClasses } from "../../hooks/useClasses";
 import { useAuth } from "../../contexts/AuthContext";
@@ -44,9 +50,7 @@ dayjs.locale("vi");
 interface ScheduleEvent {
   class: Class;
   schedule: ClassSchedule;
-  date: Dayjs;
-  startMinutes: number;
-  durationMinutes: number;
+  date: string;
   scheduleId?: string; // ID from Thời_khoá_biểu if exists
   isCustomSchedule?: boolean; // True if from Thời_khoá_biểu
 }
@@ -68,20 +72,29 @@ interface TimetableEntry {
 
 type ViewMode = "subject" | "all" | "location";
 
-const HOURS = Array.from({ length: 17 }, (_, i) => i + 6);
+// Generate hourly time slots from 6:00 to 22:00
+const HOUR_SLOTS = Array.from({ length: 17 }, (_, i) => {
+  const hour = i + 6;
+  return {
+    hour,
+    label: `${hour.toString().padStart(2, '0')}:00`,
+    start: `${hour.toString().padStart(2, '0')}:00`,
+    end: `${(hour + 1).toString().padStart(2, '0')}:00`,
+  };
+});
 
-// Màu sắc đậm hơn cho từng giáo viên - giống AdminSchedule
+// Màu sắc nhạt hơn (đồng bộ với AdminSchedule)
 const TEACHER_COLOR_PALETTE = [
-  { bg: "#0050b3", border: "#003a8c", text: "#ffffff" }, // dark blue
-  { bg: "#d46b08", border: "#ad4e00", text: "#ffffff" }, // dark orange
-  { bg: "#389e0d", border: "#237804", text: "#ffffff" }, // dark green
-  { bg: "#c41d7f", border: "#9e1068", text: "#ffffff" }, // dark pink
-  { bg: "#531dab", border: "#391085", text: "#ffffff" }, // dark purple
-  { bg: "#08979c", border: "#006d75", text: "#ffffff" }, // dark cyan
-  { bg: "#d48806", border: "#ad6800", text: "#ffffff" }, // dark yellow
-  { bg: "#1d39c4", border: "#10239e", text: "#ffffff" }, // dark geekblue
-  { bg: "#7cb305", border: "#5b8c00", text: "#ffffff" }, // dark lime
-  { bg: "#cf1322", border: "#a8071a", text: "#ffffff" }, // dark red
+  { bg: "#e6f4ff", border: "#91caff", text: "#0050b3" }, // light blue
+  { bg: "#fff7e6", border: "#ffd591", text: "#d46b08" }, // light orange
+  { bg: "#f6ffed", border: "#b7eb8f", text: "#389e0d" }, // light green
+  { bg: "#fff0f6", border: "#ffadd2", text: "#c41d7f" }, // light pink
+  { bg: "#f9f0ff", border: "#d3adf7", text: "#531dab" }, // light purple
+  { bg: "#e6fffb", border: "#87e8de", text: "#08979c" }, // light cyan
+  { bg: "#fffbe6", border: "#ffe58f", text: "#d48806" }, // light yellow
+  { bg: "#e6f7ff", border: "#91d5ff", text: "#1d39c4" }, // light geekblue
+  { bg: "#fcffe6", border: "#eaff8f", text: "#7cb305" }, // light lime
+  { bg: "#fff1f0", border: "#ffa39e", text: "#cf1322" }, // light red
 ];
 
 // Map lưu màu đã assign cho giáo viên
@@ -126,13 +139,22 @@ const TeacherSchedule = () => {
     targetDate?: Dayjs;
     newValues?: any;
   } | null>(null);
+  
+  // State để ẩn/hiện bộ lọc và fullscreen
+  const [showFilter, setShowFilter] = useState(true);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  
+  // State để mở rộng một ngày cụ thể
+  const [expandedDay, setExpandedDay] = useState<Dayjs | null>(null);
 
   const teacherId =
     teacherData?.id || userProfile?.teacherId || userProfile?.uid || "";
 
-  const weekDays = Array.from({ length: 7 }, (_, i) =>
-    currentWeekStart.add(i, "day")
-  );
+  const weekDays = useMemo(() => {
+    return Array.from({ length: 7 }, (_, i) =>
+      currentWeekStart.clone().add(i, "day")
+    );
+  }, [currentWeekStart]);
 
   // Load rooms
   useEffect(() => {
@@ -215,13 +237,17 @@ const TeacherSchedule = () => {
   };
 
   // Teacher's classes (for subject mode)
-  const myClasses = classes.filter((c) => {
-    const match = c["Teacher ID"] === teacherId;
-    return match && c["Trạng thái"] === "active";
-  });
+  const myClasses = useMemo(() => {
+    return classes.filter((c) => {
+      const match = c["Teacher ID"] === teacherId;
+      return match && c["Trạng thái"] === "active";
+    });
+  }, [classes, teacherId]);
 
   // All active classes (for all and location modes)
-  const allActiveClasses = classes.filter((c) => c["Trạng thái"] === "active");
+  const allActiveClasses = useMemo(() => {
+    return classes.filter((c) => c["Trạng thái"] === "active");
+  }, [classes]);
 
   const subjects = Array.from(new Set(myClasses.map((c) => c["Môn học"]))).sort();
 
@@ -236,7 +262,7 @@ const TeacherSchedule = () => {
     return Array.from(roomSet).sort();
   })();
 
-  const filteredClasses = (() => {
+  const filteredClasses = useMemo(() => {
     if (viewMode === "subject") {
       // Lịch phân môn: Show only teacher's classes, optionally filtered by subject
       return selectedSubjects.size === 0
@@ -259,118 +285,123 @@ const TeacherSchedule = () => {
     }
     
     return myClasses;
-  })();
+  }, [viewMode, selectedSubjects, selectedLocations, myClasses, allActiveClasses]);
 
   const timeToMinutes = (time: string): number => {
     const [hours, minutes] = time.split(":").map(Number);
     return hours * 60 + minutes;
   };
 
-  const getWeekEvents = (): (ScheduleEvent & { column: number; totalColumns: number })[] => {
-    const events: ScheduleEvent[] = [];
+  // Helper to calculate event position and height based on time
+  const getEventStyle = (event: ScheduleEvent) => {
+    const startTime = event.schedule["Giờ bắt đầu"];
+    const endTime = event.schedule["Giờ kết thúc"];
+    
+    if (!startTime || !endTime) return { top: 0, height: 60 };
+    
+    const [startHour, startMin] = startTime.split(':').map(Number);
+    const [endHour, endMin] = endTime.split(':').map(Number);
+    
+    // Calculate position from 6:00 (first hour slot)
+    const startOffset = (startHour - 6) * 60 + startMin;
+    const endOffset = (endHour - 6) * 60 + endMin;
+    const duration = endOffset - startOffset;
+    
+    // Each hour = 60px
+    const top = startOffset;
+    const height = Math.max(duration, 30); // minimum 30px height
+    
+    return { top, height };
+  };
 
-    weekDays.forEach((date) => {
-      const dayOfWeek = date.day() === 0 ? 8 : date.day() + 1;
-      const dateStr = date.format("YYYY-MM-DD");
-
-      filteredClasses.forEach((classData) => {
-        // Lịch học hiển thị tất cả các tuần (không giới hạn ngày bắt đầu/kết thúc)
-
-        // Check if there's a custom schedule in Thời_khoá_biểu
-        const timetableKey = `${classData.id}_${dateStr}_${dayOfWeek}`;
-        const customSchedule = timetableEntries.get(timetableKey);
-
-        if (customSchedule) {
-          // Use custom schedule from Thời_khoá_biểu
-          const startMinutes = timeToMinutes(customSchedule["Giờ bắt đầu"]);
-          const endMinutes = timeToMinutes(customSchedule["Giờ kết thúc"]);
-          events.push({
-            class: classData,
-            schedule: {
-              "Thứ": customSchedule["Thứ"],
-              "Giờ bắt đầu": customSchedule["Giờ bắt đầu"],
-              "Giờ kết thúc": customSchedule["Giờ kết thúc"],
-            },
-            date,
-            startMinutes,
-            durationMinutes: endMinutes - startMinutes,
-            scheduleId: customSchedule.id,
-            isCustomSchedule: true,
-          });
-        } else {
-          // Check if this date has been replaced by a custom schedule
-          if (isDateReplacedByCustomSchedule(classData.id, dateStr, dayOfWeek)) {
-            return; // Skip - this date's schedule has been moved
-          }
-
-          // Fallback to class schedule
-          const schedules = classData["Lịch học"]?.filter(
-            (s) => s["Thứ"] === dayOfWeek
-          ) || [];
-
-          schedules.forEach((schedule) => {
-            const startMinutes = timeToMinutes(schedule["Giờ bắt đầu"]);
-            const endMinutes = timeToMinutes(schedule["Giờ kết thúc"]);
-            events.push({
-              class: classData,
-              schedule,
-              date,
-              startMinutes,
-              durationMinutes: endMinutes - startMinutes,
-              isCustomSchedule: false,
-            });
-          });
-        }
-      });
+  // Group overlapping events for positioning
+  const groupOverlappingEvents = (events: ScheduleEvent[]): { event: ScheduleEvent; column: number; totalColumns: number }[] => {
+    if (events.length === 0) return [];
+    
+    // Sort by start time
+    const sorted = [...events].sort((a, b) => {
+      return a.schedule["Giờ bắt đầu"].localeCompare(b.schedule["Giờ bắt đầu"]);
     });
-
-    // Calculate columns for overlapping events
-    const eventsWithColumns = events.map((event) => ({
-      ...event,
-      column: 0,
-      totalColumns: 1,
-    }));
-
-    // Group by day and calculate overlaps
-    weekDays.forEach((day) => {
-      const dayEvents = eventsWithColumns.filter((e) => e.date.isSame(day, "day"));
+    
+    // Find overlapping groups and assign columns
+    const positioned: { event: ScheduleEvent; column: number; totalColumns: number }[] = [];
+    
+    sorted.forEach((event) => {
+      const eventStart = event.schedule["Giờ bắt đầu"];
+      const eventEnd = event.schedule["Giờ kết thúc"];
       
-      dayEvents.sort((a, b) => a.startMinutes - b.startMinutes);
+      // Find overlapping events already positioned
+      const overlapping = positioned.filter((p) => {
+        const pStart = p.event.schedule["Giờ bắt đầu"];
+        const pEnd = p.event.schedule["Giờ kết thúc"];
+        return eventStart < pEnd && eventEnd > pStart;
+      });
+      
+      // Find first available column
+      const usedColumns = new Set(overlapping.map(p => p.column));
+      let column = 0;
+      while (usedColumns.has(column)) column++;
+      
+      positioned.push({ event, column, totalColumns: 1 });
+    });
+    
+    // Update totalColumns for all events in each overlapping group
+    positioned.forEach((p) => {
+      const overlapping = positioned.filter((other) => {
+        const pStart = p.event.schedule["Giờ bắt đầu"];
+        const pEnd = p.event.schedule["Giờ kết thúc"];
+        const otherStart = other.event.schedule["Giờ bắt đầu"];
+        const otherEnd = other.event.schedule["Giờ kết thúc"];
+        return pStart < otherEnd && pEnd > otherStart;
+      });
+      p.totalColumns = Math.max(...overlapping.map(o => o.column)) + 1;
+    });
+    
+    return positioned;
+  };
 
-      for (let i = 0; i < dayEvents.length; i++) {
-        const currentEvent = dayEvents[i];
-        const overlapping = [currentEvent];
+  // Get all events for a specific date
+  const getEventsForDate = (date: Dayjs): ScheduleEvent[] => {
+    const events: ScheduleEvent[] = [];
+    const dayOfWeek = date.day() === 0 ? 8 : date.day() + 1;
+    const dateStr = date.format("YYYY-MM-DD");
 
-        for (let j = 0; j < dayEvents.length; j++) {
-          if (i === j) continue;
-          const otherEvent = dayEvents[j];
-          
-          const currentEnd = currentEvent.startMinutes + currentEvent.durationMinutes;
-          const otherEnd = otherEvent.startMinutes + otherEvent.durationMinutes;
-          
-          if (
-            (otherEvent.startMinutes < currentEnd && otherEvent.startMinutes >= currentEvent.startMinutes) ||
-            (currentEvent.startMinutes < otherEnd && currentEvent.startMinutes >= otherEvent.startMinutes)
-          ) {
-            if (!overlapping.includes(otherEvent)) {
-              overlapping.push(otherEvent);
-            }
-          }
+    filteredClasses.forEach((classData) => {
+      // First, check if there's a custom schedule in Thời_khoá_biểu
+      const timetableKey = `${classData.id}_${dateStr}_${dayOfWeek}`;
+      const customSchedule = timetableEntries.get(timetableKey);
+
+      if (customSchedule) {
+        events.push({
+          class: classData,
+          schedule: {
+            "Thứ": customSchedule["Thứ"],
+            "Giờ bắt đầu": customSchedule["Giờ bắt đầu"],
+            "Giờ kết thúc": customSchedule["Giờ kết thúc"],
+          },
+          date: dateStr,
+          scheduleId: customSchedule.id,
+          isCustomSchedule: true,
+        });
+      } else {
+        // Check if this date has been replaced by a custom schedule (moved to another day)
+        if (isDateReplacedByCustomSchedule(classData.id, dateStr, dayOfWeek)) {
+          return; // Skip this class
         }
 
-        if (overlapping.length > 1) {
-          overlapping.forEach((event, index) => {
-            event.column = index;
-            event.totalColumns = overlapping.length;
-          });
+        // Fallback to class schedule
+        if (!classData["Lịch học"] || classData["Lịch học"].length === 0) {
+          return; // Skip this class
         }
+
+        classData["Lịch học"].filter((s) => s && s["Thứ"] === dayOfWeek).forEach((schedule) => {
+          events.push({ class: classData, schedule, date: dateStr, isCustomSchedule: false });
+        });
       }
     });
 
-    return eventsWithColumns;
+    return events;
   };
-
-  const weekEvents = getWeekEvents();
 
   const goToPreviousWeek = () =>
     setCurrentWeekStart((prev) => prev.subtract(1, "week"));
@@ -378,6 +409,46 @@ const TeacherSchedule = () => {
   const goToToday = () => setCurrentWeekStart(dayjs().startOf("isoWeek"));
 
   const isToday = (date: Dayjs) => date.isSame(dayjs(), "day");
+  
+  // Refs để scroll đến các cột ngày
+  const dayRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  
+  // Helper to abbreviate class name
+  const abbreviateClassName = (className: string): string => {
+    if (!className) return "";
+    const subjectMap: Record<string, string> = {
+      "Toán": "T", "Lý": "L", "Hóa": "H", "Văn": "V", "Anh": "A",
+      "Sinh": "S", "Sử": "Sử", "Địa": "Đ", "GDCD": "GD", "Tin": "Tin",
+      "Thể dục": "TD", "Mỹ thuật": "MT", "Âm nhạc": "AN",
+    };
+    const numberMatch = className.match(/\d+/);
+    const number = numberMatch ? numberMatch[0] : "";
+    for (const [subject, abbrev] of Object.entries(subjectMap)) {
+      if (className.includes(subject)) {
+        return `${abbrev}${number}`;
+      }
+    }
+    const words = className.split(/\s+/);
+    if (words.length > 0 && number) {
+      return `${words[0].charAt(0).toUpperCase()}${number}`;
+    }
+    return className.substring(0, 3).toUpperCase();
+  };
+
+  // Helper to abbreviate room name
+  const abbreviateRoomName = (roomName: string): string => {
+    if (!roomName) return "";
+    const numberMatch = roomName.match(/\d+/);
+    const number = numberMatch ? numberMatch[0] : "";
+    if (roomName.includes("Phòng") || roomName.includes("phòng") || roomName.match(/^P\d+/i)) {
+      return `P${number}`;
+    }
+    if (number) {
+      const firstChar = roomName.charAt(0).toUpperCase();
+      return `${firstChar}${number}`;
+    }
+    return roomName.substring(0, 3).toUpperCase();
+  };
 
   const handleSubjectToggle = (subject: string) => {
     const newSelected = new Set(selectedSubjects);
@@ -449,7 +520,7 @@ const TeacherSchedule = () => {
     if (!draggingEvent) return;
 
     const newDateStr = targetDay.format("YYYY-MM-DD");
-    const oldDateStr = draggingEvent.date.format("YYYY-MM-DD");
+    const oldDateStr = draggingEvent.date;
 
     if (newDateStr === oldDateStr) {
       setDraggingEvent(null);
@@ -513,7 +584,7 @@ const TeacherSchedule = () => {
   // Di chuyển lịch chỉ cho ngày này (tạo lịch bù)
   const moveScheduleThisDateOnly = async (event: ScheduleEvent, targetDate: Dayjs) => {
     const newDateStr = targetDate.format("YYYY-MM-DD");
-    const oldDateStr = event.date.format("YYYY-MM-DD");
+    const oldDateStr = event.date;
     const newDayOfWeek = targetDate.day() === 0 ? 8 : targetDate.day() + 1;
     const oldDayOfWeek = event.schedule["Thứ"];
 
@@ -633,8 +704,9 @@ const TeacherSchedule = () => {
   // Lưu lịch chỉ cho ngày này (tạo/cập nhật lịch bù)
   const saveScheduleThisDateOnly = async (event: ScheduleEvent, values: any) => {
     try {
-      const dateStr = event.date.format("YYYY-MM-DD");
-      const dayOfWeek = event.date.day() === 0 ? 8 : event.date.day() + 1;
+      const dateStr = event.date;
+      const eventDate = dayjs(event.date);
+      const dayOfWeek = eventDate.day() === 0 ? 8 : eventDate.day() + 1;
 
       const timetableData: Omit<TimetableEntry, "id"> = {
         "Class ID": event.class.id,
@@ -644,7 +716,8 @@ const TeacherSchedule = () => {
         "Thứ": dayOfWeek,
         "Giờ bắt đầu": values["Giờ bắt đầu"].format("HH:mm"),
         "Giờ kết thúc": values["Giờ kết thúc"].format("HH:mm"),
-        "Phòng học": event.class["Phòng học"] || "",
+        "Phòng học": values["Phòng học"] || "",
+        "Ghi chú": values["Ghi chú"] || "",
       };
 
       if (event.scheduleId) {
@@ -674,9 +747,10 @@ const TeacherSchedule = () => {
     e.stopPropagation();
     setEditingEvent(event);
     editForm.setFieldsValue({
-      "Ngày": event.date,
-      "Giờ bắt đầu": dayjs(event.schedule["Giờ bắt đầu"], "HH:mm"),
-      "Giờ kết thúc": dayjs(event.schedule["Giờ kết thúc"], "HH:mm"),
+      "Giờ bắt đầu": event.schedule["Giờ bắt đầu"] ? dayjs(event.schedule["Giờ bắt đầu"], "HH:mm") : null,
+      "Giờ kết thúc": event.schedule["Giờ kết thúc"] ? dayjs(event.schedule["Giờ kết thúc"], "HH:mm") : null,
+      "Phòng học": event.class["Phòng học"] || "",
+      "Ghi chú": event.schedule["Ghi chú"] || "",
     });
     setIsEditModalOpen(true);
   };
@@ -721,24 +795,42 @@ const TeacherSchedule = () => {
     }
   };
 
-  if (myClasses.length === 0)
+  if (myClasses.length === 0 && viewMode === "subject")
     return (
-      <WrapperContent title="Lịch dạy của tôi" isLoading={loading}>
+      <WrapperContent title="Lịch dạy tổng hợp" isLoading={loading}>
         <Empty description="Bạn chưa được phân công lớp học nào" />
       </WrapperContent>
     );
 
   return (
-    <WrapperContent title="Lịch dạy của tôi" isLoading={loading}>
-      <div style={{ display: "flex", gap: "16px", height: "calc(100vh - 200px)" }}>
+    <WrapperContent title="Lịch dạy tổng hợp" isLoading={loading}>
+      <div 
+        style={{ 
+          display: "flex", 
+          gap: "16px", 
+          height: isFullscreen ? "calc(100vh - 100px)" : "calc(100vh - 200px)",
+          position: isFullscreen ? "fixed" : "relative",
+          top: isFullscreen ? "0" : "auto",
+          left: isFullscreen ? "0" : "auto",
+          right: isFullscreen ? "0" : "auto",
+          bottom: isFullscreen ? "0" : "auto",
+          zIndex: isFullscreen ? 1000 : "auto",
+          backgroundColor: isFullscreen ? "#fff" : "transparent",
+          padding: isFullscreen ? "20px" : "0",
+        }}
+      >
         {/* Sidebar */}
         <div
           style={{
-            width: "280px",
+            width: showFilter ? "280px" : "0px",
             flexShrink: 0,
-            display: "flex",
+            display: showFilter ? "flex" : "none",
             flexDirection: "column",
             gap: "16px",
+            maxHeight: "100%",
+            overflowY: showFilter ? "auto" : "hidden",
+            transition: "width 0.3s ease, opacity 0.3s ease",
+            opacity: showFilter ? 1 : 0,
           }}
         >
           {/* Mini Calendar */}
@@ -888,6 +980,35 @@ const TeacherSchedule = () => {
                 </span>
               </Space>
               <Space>
+                {expandedDay && (
+                  <Button
+                    onClick={() => setExpandedDay(null)}
+                    title="Quay lại xem tất cả các ngày"
+                  >
+                    ← Xem tất cả
+                  </Button>
+                )}
+                <Button
+                  icon={showFilter ? <MenuFoldOutlined /> : <MenuUnfoldOutlined />}
+                  onClick={() => setShowFilter(!showFilter)}
+                  title={showFilter ? "Ẩn bộ lọc" : "Hiện bộ lọc"}
+                >
+                  {showFilter ? "Ẩn bộ lọc" : "Hiện bộ lọc"}
+                </Button>
+                <Button
+                  icon={isFullscreen ? <CompressOutlined /> : <ExpandOutlined />}
+                  onClick={() => {
+                    setIsFullscreen(!isFullscreen);
+                    if (!isFullscreen) {
+                      document.documentElement.requestFullscreen?.();
+                    } else {
+                      document.exitFullscreen?.();
+                    }
+                  }}
+                  title={isFullscreen ? "Thu nhỏ" : "Mở rộng toàn màn hình"}
+                >
+                  {isFullscreen ? "Thu nhỏ" : "Toàn màn hình"}
+                </Button>
                 <Button onClick={goToToday}>Hôm nay</Button>
                 <Button icon={<RightOutlined />} onClick={goToNextWeek}>
                   Tuần sau
@@ -896,255 +1017,390 @@ const TeacherSchedule = () => {
             </div>
           </Card>
 
-          {/* Calendar Grid */}
-          <div style={{ flex: 1, overflowY: "auto", backgroundColor: "white", borderRadius: "8px" }}>
-            <div style={{ display: "flex", minHeight: "100%" }}>
+          {/* Main Calendar View */}
+          {/* Schedule Grid - Hourly View */}
+          <div style={{ flex: 1, overflow: "hidden", backgroundColor: "#fafbfc", border: "1px solid #e8e9ea", borderRadius: "8px", display: "flex", flexDirection: "column", minHeight: 0 }}>
+            <div style={{ display: "flex", width: "100%", flex: 1, minWidth: 0, overflow: "auto" }}>
               {/* Time Column */}
-              <div
-                style={{
-                  width: "60px",
-                  flexShrink: 0,
-                  borderRight: "1px solid #f0f0f0",
-                }}
-              >
-                <div style={{ height: "60px", borderBottom: "1px solid #f0f0f0" }} />
-                {HOURS.map((hour) => (
+              <div style={{ width: "60px", flexShrink: 0, borderRight: "1px solid #e8e9ea", backgroundColor: "#f5f6f7" }}>
+                {/* Empty header cell */}
+                <div style={{ 
+                  height: "60px", 
+                  borderBottom: "1px solid #f0f0f0",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: "11px",
+                  color: "#999"
+                }}>
+                  GMT+07
+                </div>
+                {/* Hour labels */}
+                {HOUR_SLOTS.map((slot) => (
                   <div
-                    key={hour}
+                    key={slot.hour}
                     style={{
                       height: "60px",
                       borderBottom: "1px solid #f0f0f0",
-                      padding: "4px",
-                      fontSize: "12px",
+                      display: "flex",
+                      alignItems: "flex-start",
+                      justifyContent: "flex-end",
+                      paddingRight: "8px",
+                      paddingTop: "4px",
+                      fontSize: "11px",
                       color: "#666",
-                      textAlign: "right",
                     }}
                   >
-                    {hour}:00
+                    {slot.label}
                   </div>
                 ))}
               </div>
 
-              {/* Days Columns */}
-              {weekDays.map((day, dayIndex) => {
-                const dayEvents = weekEvents.filter((e) =>
-                  e.date.isSame(day, "day")
-                );
+              {/* Day Columns */}
+              {weekDays
+                .filter((day) => !expandedDay || day.isSame(expandedDay, "day"))
+                .map((day, dayIndex) => {
+                const dayEvents = getEventsForDate(day);
+                const positionedEvents = groupOverlappingEvents(dayEvents);
                 const isDragOver = dragOverDay === dayIndex;
+                const isTodayColumn = isToday(day);
+                const isExpanded = expandedDay && day.isSame(expandedDay, "day");
 
                 return (
                   <div
                     key={dayIndex}
-                    style={{
-                      flex: 1,
-                      minWidth: "180px",
-                      borderRight: dayIndex < 6 ? "1px solid #f0f0f0" : "none",
-                      position: "relative",
-                      backgroundColor: isDragOver 
-                        ? "#bae7ff" 
-                        : isToday(day) ? "#f6ffed" : "white",
-                      transition: "background-color 0.2s",
-                      outline: isDragOver ? "2px dashed #1890ff" : "none",
+                    ref={(el) => {
+                      if (el) {
+                        dayRefs.current.set(dayIndex, el);
+                      } else {
+                        dayRefs.current.delete(dayIndex);
+                      }
                     }}
-                    onDragOver={(e) => handleDragOver(e, dayIndex)}
+                    style={{
+                      flex: isExpanded ? "1 1 100%" : "1 1 0%",
+                      minWidth: isExpanded ? "100%" : "0",
+                      width: isExpanded ? "100%" : "auto",
+                      maxWidth: isExpanded ? "100%" : "none",
+                      borderRight: (dayIndex < 6 && !isExpanded) ? "1px solid #e8e9ea" : "none",
+                      position: "relative",
+                      scrollMargin: "0 20px",
+                      transition: "all 0.3s ease",
+                      flexShrink: isExpanded ? 0 : 1,
+                    }}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = "move";
+                      setDragOverDay(dayIndex);
+                    }}
                     onDragLeave={handleDragLeave}
-                    onDrop={(e) => handleDrop(e, day)}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setDragOverDay(null);
+                      if (draggingEvent) {
+                        handleDrop(e, day);
+                      }
+                    }}
                   >
                     {/* Day Header */}
                     <div
+                      onClick={() => {
+                        if (expandedDay && day.isSame(expandedDay, "day")) {
+                          setExpandedDay(null);
+                        } else {
+                          setExpandedDay(day);
+                        }
+                      }}
                       style={{
                         height: "60px",
-                        borderBottom: "1px solid #f0f0f0",
+                        borderBottom: "1px solid #e8e9ea",
+                        backgroundColor: isTodayColumn ? "#e6f7ff" : isExpanded ? "#e6f7ff" : "#f5f6f7",
+                        borderTop: (isTodayColumn || isExpanded) ? "3px solid #1890ff" : "none",
+                        boxShadow: (isTodayColumn || isExpanded) ? "0 2px 8px rgba(24, 144, 255, 0.15)" : "none",
                         display: "flex",
                         flexDirection: "column",
                         alignItems: "center",
                         justifyContent: "center",
-                        backgroundColor: isToday(day) ? "#e6f7ff" : "#fafafa",
+                        position: "sticky",
+                        top: 0,
+                        zIndex: 10,
+                        cursor: "pointer",
+                        transition: "all 0.2s",
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!isExpanded && !isTodayColumn) {
+                          e.currentTarget.style.backgroundColor = "#f0f0f0";
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!isExpanded && !isTodayColumn) {
+                          e.currentTarget.style.backgroundColor = "#f5f6f7";
+                        }
                       }}
                     >
-                      <div
-                        className="capitalize"
-                        style={{
-                          fontSize: "12px",
-                          color: "#666",
-                          fontWeight: 500,
-                        }}
-                      >
-                        {day.format("ddd")}
+                      <div style={{ fontSize: "12px", color: "#666", textTransform: "capitalize", display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", justifyContent: "center" }}>
+                        {day.format("dddd")}
+                        {isExpanded && (
+                          <Tag color="blue" style={{ fontSize: "10px", margin: 0 }}>
+                            Đã mở rộng
+                          </Tag>
+                        )}
                       </div>
-                      <div
-                        style={{
-                          fontSize: "20px",
-                          fontWeight: "bold",
-                          color: isToday(day) ? "#1890ff" : "#000",
-                        }}
-                      >
-                        {day.format("DD")}
+                      <div style={{ 
+                        fontSize: "20px", 
+                        fontWeight: "bold",
+                        color: (isToday(day) || isExpanded) ? "#1890ff" : "#333",
+                        width: "36px",
+                        height: "36px",
+                        borderRadius: "50%",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        backgroundColor: (isToday(day) || isExpanded) ? "#1890ff" : "transparent",
+                        ...((isToday(day) || isExpanded) && { color: "white" })
+                      }}>
+                        {day.format("D")}
                       </div>
+                      {isExpanded && (
+                        <div style={{ fontSize: "10px", color: "#1890ff", marginTop: "4px", fontWeight: "500" }}>
+                          Click để quay lại
+                        </div>
+                      )}
                     </div>
 
-                    {/* Hour Grid Lines */}
-                    {HOURS.map((hour) => (
-                      <div
-                        key={hour}
-                        style={{
-                          height: "60px",
-                          borderBottom: "1px solid #f0f0f0",
-                        }}
-                      />
-                    ))}
-
-                    {/* Events */}
-                    {dayEvents.map((event, idx) => {
-                      const topOffset = ((event.startMinutes - 6 * 60) / 60) * 60;
-                      const height = (event.durationMinutes / 60) * 60;
-                      
-                      const widthPercent = 100 / event.totalColumns;
-                      const leftPercent = (event.column * widthPercent);
-                      const isDragging = draggingEvent?.class.id === event.class.id && 
-                                         draggingEvent?.date.isSame(event.date, "day");
-
-                      // Màu sắc theo GIÁO VIÊN - giống như AdminSchedule
-                      const colorScheme = getTeacherColor(
-                        event.class["Teacher ID"] || "",
-                        event.class["Giáo viên chủ nhiệm"] || ""
-                      );
-
-                      return (
+                    {/* Hour Grid with Events */}
+                    <div
+                      style={{
+                        position: "relative",
+                        height: `${HOUR_SLOTS.length * 60}px`,
+                        backgroundColor: isDragOver ? "#e6f7ff" : isTodayColumn ? "#f0f8ff" : "#fafbfc",
+                      }}
+                    >
+                      {/* Hour lines */}
+                      {HOUR_SLOTS.map((slot, idx) => (
                         <div
-                          key={idx}
-                          draggable
-                          onDragStart={(e) => handleDragStart(e, event)}
-                          onDragEnd={handleDragEnd}
+                          key={slot.hour}
                           style={{
                             position: "absolute",
-                            top: `${60 + topOffset}px`,
-                            left: `${leftPercent}%`,
-                            width: `${widthPercent - 1}%`,
-                            height: `${height - 4}px`,
-                            backgroundColor: colorScheme.bg,
-                            border: `1px solid ${colorScheme.border}`,
-                            borderLeft: `4px solid ${colorScheme.border}`,
-                            borderRadius: "4px",
-                            padding: "4px 6px",
-                            cursor: "grab",
-                            overflow: "hidden",
-                            transition: "all 0.2s",
-                            zIndex: 1,
-                            opacity: isDragging ? 0.5 : 1,
-                            boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+                            top: idx * 60,
+                            left: 0,
+                            right: 0,
+                            height: "60px",
+                            borderBottom: "1px solid #f5f5f5",
                           }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.boxShadow = "0 4px 12px rgba(0,0,0,0.2)";
-                            e.currentTarget.style.zIndex = "10";
-                            e.currentTarget.style.transform = "translateY(-1px)";
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.boxShadow = "0 2px 4px rgba(0,0,0,0.1)";
-                            e.currentTarget.style.zIndex = "1";
-                            e.currentTarget.style.transform = "translateY(0)";
-                          }}
-                        >
-                          {/* Edit Button */}
-                          <Button
-                            type="text"
-                            size="small"
-                            icon={<EditOutlined />}
-                            onClick={(e) => handleEditSchedule(event, e)}
-                            style={{
-                              position: "absolute",
-                              top: "2px",
-                              right: "2px",
-                              padding: "0 4px",
-                              height: "16px",
-                              fontSize: "10px",
-                              zIndex: 2,
-                            }}
-                            title="Sửa lịch"
-                          />
-                          
-                          {/* Custom schedule indicator */}
-                          {event.isCustomSchedule && (
-                            <Tag 
-                              color="orange" 
-                              style={{ 
-                                position: "absolute", 
-                                bottom: "2px", 
-                                right: "2px", 
-                                fontSize: "8px",
-                                padding: "0 4px",
-                                margin: 0,
-                              }}
-                            >
-                              Bù
-                            </Tag>
-                          )}
-                          
-                          <div
-                            style={{
-                              fontWeight: "bold",
-                              fontSize: "12px",
-                              marginBottom: "2px",
-                              whiteSpace: "nowrap",
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              paddingRight: "20px",
-                              color: colorScheme.text,
-                            }}
-                            onClick={() =>
-                              navigate(
-                                `/workspace/attendance/session/${event.class.id}`,
-                                {
-                                  state: {
-                                    classData: event.class,
-                                    date: event.date.format("YYYY-MM-DD"),
-                                  },
-                                }
-                              )
-                            }
-                          >
-                            {event.class["Tên lớp"]}
-                          </div>
-                          <div
-                            style={{
-                              fontSize: "10px",
-                              color: colorScheme.text,
-                              marginBottom: "2px",
-                              opacity: 0.9,
-                            }}
-                          >
-                            {event.schedule["Giờ bắt đầu"]} - {event.schedule["Giờ kết thúc"]}
-                          </div>
-                          {(event.class["Phòng học"] || event.schedule["Địa điểm"]) && (
+                        />
+                      ))}
+
+                      {/* Current time indicator */}
+                      {isToday(day) && (() => {
+                        const now = dayjs();
+                        const currentHour = now.hour();
+                        const currentMin = now.minute();
+                        if (currentHour >= 6 && currentHour < 23) {
+                          const topPosition = (currentHour - 6) * 60 + currentMin;
+                          return (
                             <div
                               style={{
-                                fontSize: "9px",
-                                color: colorScheme.text,
-                                whiteSpace: "nowrap",
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                                marginBottom: "2px",
-                                opacity: 0.85,
+                                position: "absolute",
+                                top: topPosition,
+                                left: 0,
+                                right: 0,
+                                height: "2px",
+                                backgroundColor: "#ff4d4f",
+                                zIndex: 5,
                               }}
                             >
-                              <EnvironmentOutlined /> {getRoomName(event.class["Phòng học"]) || event.schedule["Địa điểm"]}
+                              <div
+                                style={{
+                                  position: "absolute",
+                                  left: -4,
+                                  top: -4,
+                                  width: "10px",
+                                  height: "10px",
+                                  borderRadius: "50%",
+                                  backgroundColor: "#ff4d4f",
+                                }}
+                              />
                             </div>
-                          )}
+                          );
+                        }
+                        return null;
+                      })()}
+
+                      {/* Events */}
+                      {positionedEvents.map(({ event, column, totalColumns }, idx) => {
+                        const { top, height } = getEventStyle(event);
+                        const eventKey = `${event.class.id}_${event.date}_${event.schedule["Thứ"]}`;
+                        const isDragging = draggingEvent?.class.id === event.class.id && draggingEvent?.date === event.date;
+                        
+                        // Calculate width and left position for overlapping events
+                        const gap = 4;
+                        const width = `calc((100% - ${(totalColumns - 1) * gap}px) / ${totalColumns})`;
+                        const left = `calc(${column} * ((100% - ${(totalColumns - 1) * gap}px) / ${totalColumns} + ${gap}px))`;
+
+                        // Màu sắc theo GIÁO VIÊN
+                        const colorScheme = getTeacherColor(
+                          event.class["Teacher ID"] || "",
+                          event.class["Giáo viên chủ nhiệm"] || ""
+                        );
+
+                        return (
                           <div
+                            key={`${eventKey}_${idx}`}
+                            draggable
+                            onDragStart={(e) => handleDragStart(e, event)}
+                            onDragEnd={handleDragEnd}
                             style={{
-                              fontSize: "9px",
-                              color: colorScheme.text,
-                              whiteSpace: "nowrap",
+                              position: "absolute",
+                              top: top,
+                              left: left,
+                              width: width,
+                              minWidth: 0,
+                              maxWidth: width,
+                              height: Math.max(height, 70),
+                              backgroundColor: colorScheme.bg,
+                              borderLeft: `4px solid ${colorScheme.border}`,
+                              borderRadius: "4px",
+                              padding: "6px 4px 6px 8px",
+                              fontSize: "12px",
                               overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              opacity: 0.85,
+                              display: "flex",
+                              flexDirection: "column",
+                              justifyContent: "flex-start",
+                              boxSizing: "border-box",
+                              cursor: "pointer",
+                              opacity: isDragging ? 0.5 : 1,
+                              zIndex: 2,
+                              boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
+                              transition: "all 0.2s",
                             }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.boxShadow = "0 4px 12px rgba(0,0,0,0.2)";
+                              e.currentTarget.style.zIndex = "15";
+                              e.currentTarget.style.transform = "translateY(-1px)";
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.boxShadow = "0 2px 4px rgba(0,0,0,0.1)";
+                              e.currentTarget.style.zIndex = "2";
+                              e.currentTarget.style.transform = "translateY(0)";
+                            }}
+                            onClick={() => navigate(`/workspace/classes/${event.class.id}/history`)}
                           >
-                            <BookOutlined /> {subjectMap[event.class["Môn học"]] || event.class["Môn học"]}
+                            <Popover
+                              content={
+                                <div style={{ maxWidth: "250px" }}>
+                                  <div style={{ fontWeight: "bold", marginBottom: "8px" }}>
+                                    {event.class["Tên lớp"]}
+                                  </div>
+                                  <div style={{ fontSize: "12px", marginBottom: "4px" }}>
+                                    🕐 {event.schedule["Giờ bắt đầu"]} - {event.schedule["Giờ kết thúc"]}
+                                  </div>
+                                  <div style={{ fontSize: "12px", marginBottom: "4px" }}>
+                                    👨‍🏫 {event.class["Giáo viên chủ nhiệm"]}
+                                  </div>
+                                  {event.class["Phòng học"] && (
+                                    <div style={{ fontSize: "12px", marginBottom: "4px" }}>
+                                      📍 {getRoomName(event.class["Phòng học"])}
+                                    </div>
+                                  )}
+                                  <div style={{ marginTop: "8px" }}>
+                                    <Space size={4}>
+                                      <Button size="small" type="primary" onClick={(e) => { e.stopPropagation(); handleEditSchedule(event, e); }}>
+                                        <EditOutlined /> Sửa lịch
+                                      </Button>
+                                    </Space>
+                                  </div>
+                                </div>
+                              }
+                              trigger="hover"
+                              placement="right"
+                            >
+                              <div style={{ 
+                                height: "100%", 
+                                display: "flex", 
+                                flexDirection: "column", 
+                                gap: "3px", 
+                                justifyContent: "flex-start",
+                                minHeight: "60px",
+                              }}>
+                                {/* Hàng 1: Tên lớp viết tắt - Tên giáo viên */}
+                                <div style={{ 
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: "6px",
+                                  flexShrink: 0,
+                                  lineHeight: "1.3",
+                                }}>
+                                  <div style={{ 
+                                    fontWeight: "bold", 
+                                    color: colorScheme.text, 
+                                    fontSize: height < 70 ? "12px" : "13px", 
+                                    whiteSpace: "nowrap",
+                                  }}>
+                                    {abbreviateClassName(event.class["Tên lớp"])}
+                                  </div>
+                                  {event.class["Giáo viên chủ nhiệm"] && (
+                                    <div style={{ 
+                                      color: colorScheme.text, 
+                                      fontSize: height < 70 ? "9px" : "10px", 
+                                      opacity: 0.85, 
+                                      whiteSpace: "nowrap",
+                                      overflow: "hidden",
+                                      textOverflow: "ellipsis",
+                                      flex: 1,
+                                    }}>
+                                      {event.class["Giáo viên chủ nhiệm"]}
+                                    </div>
+                                  )}
+                                </div>
+                                
+                                {/* Hàng 2: Phòng học viết tắt - Lịch học (giờ) */}
+                                <div style={{ 
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: "6px",
+                                  flexShrink: 0,
+                                  lineHeight: "1.3",
+                                }}>
+                                  {getRoomName(event.class["Phòng học"]) && (
+                                    <div style={{ 
+                                      color: colorScheme.text, 
+                                      fontSize: height < 70 ? "10px" : "11px", 
+                                      opacity: 0.9, 
+                                      whiteSpace: "nowrap",
+                                      fontWeight: "500",
+                                    }}>
+                                      {abbreviateRoomName(getRoomName(event.class["Phòng học"]))}
+                                    </div>
+                                  )}
+                                  <div style={{ 
+                                    color: colorScheme.text, 
+                                    fontSize: height < 70 ? "9px" : "10px", 
+                                    opacity: 0.85, 
+                                    whiteSpace: "nowrap",
+                                    flex: 1,
+                                  }}>
+                                    {event.schedule["Giờ bắt đầu"]} - {event.schedule["Giờ kết thúc"]}
+                                  </div>
+                                </div>
+                                
+                                {/* Tag Đã sửa */}
+                                {event.isCustomSchedule && height > 70 && (
+                                  <Tag color="orange" style={{ 
+                                    fontSize: "8px", 
+                                    marginTop: "2px", 
+                                    padding: "1px 4px", 
+                                    alignSelf: "flex-start",
+                                    lineHeight: "1.2",
+                                  }}>
+                                    Đã sửa
+                                  </Tag>
+                                )}
+                              </div>
+                            </Popover>
                           </div>
-                        </div>
-                      );
-                    })}
+                        );
+                      })}
+                    </div>
                   </div>
                 );
               })}
@@ -1171,7 +1427,7 @@ const TeacherSchedule = () => {
               <div><strong>Thời gian:</strong> {pendingAction.event.schedule["Giờ bắt đầu"]} - {pendingAction.event.schedule["Giờ kết thúc"]}</div>
               {confirmModalType === 'drag' && pendingAction.targetDate && (
                 <div style={{ marginTop: "8px", color: "#1890ff" }}>
-                  <strong>Di chuyển từ:</strong> {pendingAction.event.date.format("dddd, DD/MM/YYYY")}
+                  <strong>Di chuyển từ:</strong> {dayjs(pendingAction.event.date).format("dddd, DD/MM/YYYY")}
                   <br />
                   <strong>Đến:</strong> {pendingAction.targetDate.format("dddd, DD/MM/YYYY")}
                 </div>
@@ -1250,12 +1506,14 @@ const TeacherSchedule = () => {
         ]}
       >
         <Form form={editForm} layout="vertical">
-          <Form.Item
-            name="Ngày"
-            label="Ngày"
-            rules={[{ required: true, message: "Vui lòng chọn ngày" }]}
-          >
-            <DatePicker format="DD/MM/YYYY" style={{ width: "100%" }} />
+          <Form.Item label="Lớp học">
+            <Input value={editingEvent?.class["Tên lớp"]} disabled />
+          </Form.Item>
+          <Form.Item label="Môn học">
+            <Input value={subjectMap[editingEvent?.class["Môn học"] || ""] || editingEvent?.class["Môn học"]} disabled />
+          </Form.Item>
+          <Form.Item label="Giáo viên">
+            <Input value={editingEvent?.class["Giáo viên chủ nhiệm"]} disabled />
           </Form.Item>
           
           <Space style={{ width: "100%" }}>
@@ -1277,6 +1535,27 @@ const TeacherSchedule = () => {
               <TimePicker format="HH:mm" style={{ width: "100%" }} />
             </Form.Item>
           </Space>
+          
+          <Form.Item
+            name="Phòng học"
+            label="Phòng học"
+          >
+            <Select 
+              placeholder="Chọn phòng học" 
+              allowClear
+              options={Array.from(rooms.values()).map((room) => ({
+                label: `${room["Tên phòng"]} - ${room["Địa điểm"]}`,
+                value: room.id,
+              }))}
+            />
+          </Form.Item>
+          
+          <Form.Item
+            name="Ghi chú"
+            label="Ghi chú"
+          >
+            <Input.TextArea rows={2} placeholder="Thêm ghi chú cho lịch học này" />
+          </Form.Item>
         </Form>
       </Modal>
     </WrapperContent>

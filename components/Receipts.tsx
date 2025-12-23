@@ -35,6 +35,17 @@ interface TuitionData {
   pricePerSession: string;
   totalAmount: string;
   note: string;
+  studentClass?: string; // Khối lớp
+  discount?: string; // Miễn giảm
+  debtDetail1?: string; // Chi tiết nợ dòng 1
+  debtDetail2?: string; // Chi tiết nợ dòng 2
+  subjects?: Array<{
+    subject: string;
+    class: string;
+    sessions: number;
+    pricePerSession: string;
+    total: string;
+  }>; // Danh sách môn học (optional, nếu không có thì dùng dữ liệu tổng hợp)
 }
 
 interface SalaryData {
@@ -156,15 +167,48 @@ export const TuitionReceipt: React.FC<{
     }
   };
 
+  // Get bank info for payment info
+  const bankId = "VPB"; // VPBank
+  const accountNo = "4319888";
+  const accountName = "NGUYEN THI HOA";
+
+  // Map subject icons
+  const getSubjectIcon = (subject: string) => {
+    const lowerSubject = subject.toLowerCase();
+    if (lowerSubject.includes("toán") || lowerSubject.includes("math")) return "fa-calculator";
+    if (lowerSubject.includes("văn") || lowerSubject.includes("literature")) return "fa-pen-nib";
+    if (lowerSubject.includes("anh") || lowerSubject.includes("english")) return "fa-language";
+    if (lowerSubject.includes("khoa") || lowerSubject.includes("science")) return "fa-flask";
+    if (lowerSubject.includes("thuyết trình") || lowerSubject.includes("presentation")) return "fa-user-tie";
+    if (lowerSubject.includes("kỹ năng") || lowerSubject.includes("skill")) return "fa-gear";
+    return "fa-book";
+  };
+
+  // Prepare subjects array - if data.subjects exists use it, otherwise create from total data
+  const subjects = data.subjects && data.subjects.length > 0
+    ? data.subjects
+    : [{
+        subject: "Học phí",
+        class: data.studentClass || "Lớp",
+        sessions: data.totalSessions,
+        pricePerSession: data.pricePerSession.replace(/[^0-9]/g, ""),
+        total: data.totalAmount.replace(/[^0-9]/g, ""),
+      }];
+
+  // Calculate totals
+  const totalSessions = subjects.reduce((sum, s) => sum + s.sessions, 0);
+  const totalAmount = subjects.reduce((sum, s) => sum + parseInt(s.total.replace(/[^0-9]/g, "") || "0"), 0);
+
   return (
-    <div className="max-w-4xl mx-auto my-6">
-      <div className="mb-4 flex justify-end">
+    <div style={{ display: "flex", justifyContent: "center", alignItems: "center", minHeight: "100vh", padding: "20px", backgroundColor: "#f0f0f0", fontFamily: "'Roboto', sans-serif" }}>
+      <div style={{ width: "100%", maxWidth: "800px" }}>
+        <div style={{ marginBottom: "20px", display: "flex", justifyContent: "flex-end" }}>
         <Button
           type="primary"
           icon={<DownloadOutlined />}
           onClick={handleExport}
           loading={isExporting}
-          style={{ backgroundColor: "#36797f" }}
+            style={{ backgroundColor: "#103458" }}
         >
           {isExporting ? "Đang xuất..." : "📸 Xuất ảnh"}
         </Button>
@@ -172,12 +216,18 @@ export const TuitionReceipt: React.FC<{
 
       <div
         ref={receiptRef}
-        className="bg-white rounded-lg shadow-md border relative overflow-hidden"
-        style={{ borderColor: COLORS.dark, minWidth: "700px" }}
+          style={{
+            width: "100%",
+            maxWidth: "800px",
+            background: "#fff",
+            boxShadow: "0 5px 15px rgba(0,0,0,0.1)",
+            overflow: "hidden",
+            position: "relative",
+            borderRadius: "8px",
+          }}
       >
         {/* Background Logo */}
         <div
-          className="absolute inset-0 flex items-center justify-center pointer-events-none"
           style={{
             position: "absolute",
             top: 0,
@@ -188,19 +238,18 @@ export const TuitionReceipt: React.FC<{
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
+              pointerEvents: "none",
           }}
         >
           <img
-            src="/img/logo.png"
+            src="https://www.appsheet.com/template/gettablefileurl?appName=Appsheet-325045268&tableName=Kho%20%E1%BA%A3nh&fileName=Kho%20%E1%BA%A3nh_Images%2F5efd9944.%E1%BA%A2nh.120320.png"
             alt="Background Logo"
-            onError={(e) => console.error("Logo load failed:", e)}
-            onLoad={() => console.log("Logo loaded successfully")}
             style={{
               width: "auto",
               height: "400px",
               maxWidth: "400px",
               objectFit: "contain",
-              opacity: 1,
+                opacity: 0.3,
               filter: "grayscale(20%) brightness(1.1)",
               userSelect: "none",
               pointerEvents: "none",
@@ -208,77 +257,297 @@ export const TuitionReceipt: React.FC<{
           />
         </div>
 
-        <div
-          className="p-8 relative"
-          style={{ zIndex: 10, position: "relative" }}
-        >
-          <Title level={2} style={{ textAlign: "center", color: "#36797f" }}>
-            PHIẾU THU HỌC PHÍ THÁNG {data.month}
-          </Title>
+          {/* Watermark */}
           <div
-            className="mt-6 border rounded overflow-hidden"
-            style={{ borderColor: COLORS.default, background: "transparent" }}
+            style={{
+              position: "absolute",
+              top: "50%",
+              left: "50%",
+              transform: "translate(-50%, -50%)",
+              fontSize: "40px",
+              fontWeight: "bold",
+              color: "rgba(0,0,0,0.03)",
+              zIndex: 0,
+              pointerEvents: "none",
+              whiteSpace: "nowrap",
+            }}
           >
-            <div
-              className="bg-[${COLORS.default}]"
-              style={{ background: "transparent" }}
-            />
-            <div
-              className="bg-[#f7fafc] p-4"
-              style={{ background: "rgba(255, 255, 255, 0.85)" }}
-            >
-              <div className="bg-[" style={{ background: "transparent" }} />
-              <div
-                className="bg-yellow-300 p-2 text-center font-semibold text-lg"
-                style={{ background: COLORS.default, color: "#fff" }}
-              >
-                <Text strong style={{ color: "#fff", fontSize: 18 }}>
-                  {data.studentName}
-                </Text>
+            TRUNG TÂM HỌC TẬP
+          </div>
+
+          {/* Header */}
+          <div
+            style={{
+              backgroundColor: "#103458",
+              color: "#fccf6e",
+              textAlign: "center",
+              padding: "25px 10px",
+              position: "relative",
+              zIndex: 1,
+            }}
+        >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "15px", marginBottom: "15px" }}>
+              <img
+                src="https://www.appsheet.com/template/gettablefileurl?appName=Appsheet-325045268&tableName=Kho%20%E1%BA%A3nh&fileName=Kho%20%E1%BA%A3nh_Images%2F323065b6.%E1%BA%A2nh.115930.png"
+                alt="Logo Trí Tuệ 8+"
+                style={{
+                  height: "50px",
+                  width: "auto",
+                  objectFit: "contain",
+                }}
+              />
+              <div style={{ fontSize: "20px", fontWeight: 500, color: "#fccf6e" }}>
+                Trung tâm trí tuệ 8+
+              </div>
+            </div>
+            <h1 style={{ textTransform: "uppercase", fontSize: "28px", fontWeight: 700, letterSpacing: "1px", margin: 0 }}>
+            PHIẾU THU HỌC PHÍ THÁNG {data.month}
+            </h1>
+          </div>
+
+          {/* Info Section */}
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              padding: "30px 40px",
+              color: "#103458",
+              position: "relative",
+              zIndex: 1,
+            }}
+          >
+            <div style={{ width: "48%" }}>
+              <h3 style={{ textTransform: "uppercase", fontSize: "18px", marginBottom: "15px", fontWeight: 700 }}>
+                THÔNG TIN HỌC SINH
+              </h3>
+              <div style={{ marginBottom: "8px", fontSize: "15px", color: "#444" }}>
+                <strong>Họ và tên:</strong> {data.studentName}
+              </div>
+              <div style={{ marginBottom: "8px", fontSize: "15px", color: "#444" }}>
+                <strong>Khối lớp:</strong> {data.studentClass || "Chưa xác định"}
+              </div>
+            </div>
+            <div style={{ width: "48%" }}>
+              <h3 style={{ textTransform: "uppercase", fontSize: "18px", marginBottom: "15px", fontWeight: 700 }}>
+                THÔNG TIN THANH TOÁN
+              </h3>
+              <div style={{ marginBottom: "8px", fontSize: "15px", color: "#444" }}>
+                <strong>Tên người nhận:</strong> {accountName}
+              </div>
+              <div style={{ marginBottom: "8px", fontSize: "15px", color: "#444" }}>
+                <strong>Số tài khoản:</strong> {accountNo}
+              </div>
+            </div>
               </div>
 
-              <table className="w-full text-sm mt-4 table-fixed border-collapse">
-                <thead>
+          {/* Table */}
+          <div style={{ padding: "0 40px", position: "relative", zIndex: 1 }}>
+            <table
+              style={{
+                width: "100%",
+                borderCollapse: "collapse",
+                borderRadius: "10px 10px 0 0",
+                overflow: "hidden",
+              }}
+            >
+              <thead style={{ backgroundColor: "#103458", color: "white" }}>
                   <tr>
-                    <th className="border p-4 text-sm">Tháng</th>
-                    <th className="border p-4 text-sm">Tổng số buổi học</th>
-                    <th className="border p-4 text-sm">Học phí/buổi</th>
-                    <th className="border p-4 text-sm">Học phí hoàn thành</th>
+                  <th style={{ padding: "15px", textAlign: "center", fontWeight: 500 }}>Môn học</th>
+                  <th style={{ padding: "15px", textAlign: "center", fontWeight: 500 }}>Lớp</th>
+                  <th style={{ padding: "15px", textAlign: "center", fontWeight: 500 }}>Số buổi</th>
+                  <th style={{ padding: "15px", textAlign: "center", fontWeight: 500 }}>Giá/buổi</th>
+                  <th style={{ padding: "15px", textAlign: "center", fontWeight: 500 }}>Thành tiền</th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr>
-                    <td className="border p-4 text-center">{data.month}</td>
-                    <td className="border p-4 text-center">
-                      {data.totalSessions}
+                {subjects.map((item, index) => {
+                  const priceNum = parseInt(item.pricePerSession.replace(/[^0-9]/g, "") || "0");
+                  const totalNum = parseInt(item.total.replace(/[^0-9]/g, "") || "0");
+                  return (
+                    <tr
+                      key={index}
+                      style={{
+                        backgroundColor: index % 2 === 0 ? "#fff" : "#eef6fb",
+                      }}
+                    >
+                      <td style={{ padding: "12px 15px 12px 20px", textAlign: "left", color: "#333", borderBottom: "1px solid #ddd" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "10px", fontWeight: 500 }}>
+                          <i className={`fa-solid ${getSubjectIcon(item.subject)}`} style={{ color: "#103458", width: "20px" }}></i>
+                          {item.subject}
+                        </div>
                     </td>
-                    <td className="border p-4 text-center">
-                      {data.pricePerSession}
+                      <td style={{ padding: "12px 15px", textAlign: "center", color: "#333", borderBottom: "1px solid #ddd" }}>
+                        {item.class}
                     </td>
-                    <td className="border p-4 text-center">
-                      {data.totalAmount}
+                      <td style={{ padding: "12px 15px", textAlign: "center", color: "#333", borderBottom: "1px solid #ddd" }}>
+                        {item.sessions}
+                      </td>
+                      <td style={{ padding: "12px 15px", textAlign: "center", color: "#333", borderBottom: "1px solid #ddd" }}>
+                        {priceNum.toLocaleString("vi-VN")}
+                      </td>
+                      <td style={{ padding: "12px 15px", textAlign: "center", color: "#333", borderBottom: "1px solid #ddd" }}>
+                        {totalNum.toLocaleString("vi-VN")}
                     </td>
                   </tr>
+                  );
+                })}
                 </tbody>
               </table>
+          </div>
 
-              <div className="mt-6 p-4 flex items-start gap-6">
-                <div className="flex-1 text-sm text-gray-700 space-y-2">
-                  <p>🌼{data.note}</p>
-                  <p>🌼Em cảm ơn Quý phụ huynh ạ!</p>
+          {/* Footer */}
+          <div
+            style={{
+              padding: "20px 40px 40px 40px",
+              position: "relative",
+              zIndex: 1,
+            }}
+          >
+            {/* Tags Section */}
+            <div style={{ display: "flex", gap: "10px", marginBottom: "20px", justifyContent: "flex-end" }}>
+              {data.discount && (
+                <span
+                  style={{
+                    backgroundColor: "#f25c78",
+                    color: "white",
+                    padding: "5px 10px",
+                    borderRadius: "5px",
+                    fontSize: "14px",
+                    fontWeight: "bold",
+                    display: "inline-block",
+                  }}
+                >
+                  Miễn giảm
+                </span>
+              )}
+              <span
+                style={{
+                  backgroundColor: "#f25c78",
+                  color: "white",
+                  padding: "5px 10px",
+                  borderRadius: "5px",
+                  fontSize: "14px",
+                  fontWeight: "bold",
+                  display: "inline-block",
+                }}
+              >
+                Tổng học phí
+              </span>
                 </div>
-                <div className="w-48 h-48 bg-white border flex items-center justify-center overflow-hidden shrink-0">
-                  <img
-                    src={generateVietQR(
-                      data.totalAmount,
-                      data.studentName,
-                      data.month
-                    )}
-                    alt="VietQR Code"
-                    className="w-full h-full object-contain"
+
+            <div
+              style={{
+                display: "flex",
+                gap: "30px",
+                marginBottom: "30px",
+              }}
+            >
+              <div style={{ flex: "1.2", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+                <div>
+                  <div
+                    style={{
+                      backgroundColor: "#f25c78",
+                      color: "white",
+                      display: "inline-block",
+                      padding: "8px 15px",
+                      borderRadius: "6px",
+                      fontWeight: "bold",
+                      marginBottom: "10px",
+                      width: "fit-content",
+                    }}
+                  >
+                    Chi tiết nợ
+                  </div>
+                  <div
+                    style={{
+                      width: "100%",
+                      backgroundColor: "#eef6fb",
+                      border: "none",
+                      height: "40px",
+                      borderRadius: "8px",
+                      marginBottom: "10px",
+                      padding: "8px 12px",
+                      fontSize: "14px",
+                      color: "#333",
+                      display: "flex",
+                      alignItems: "center",
+                    }}
+                  >
+                    {data.debtDetail1 || ""}
+                  </div>
+                  <div
+                    style={{
+                      width: "100%",
+                      backgroundColor: "#eef6fb",
+                      border: "none",
+                      height: "40px",
+                      borderRadius: "8px",
+                      marginBottom: "10px",
+                      padding: "8px 12px",
+                      fontSize: "14px",
+                      color: "#333",
+                      display: "flex",
+                      alignItems: "center",
+                    }}
+                  >
+                    {data.debtDetail2 || ""}
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    backgroundColor: "#103458",
+                    color: "#fccf6e",
+                    padding: "15px",
+                    borderRadius: "8px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    position: "relative",
+                    marginTop: "10px",
+                  }}
+                >
+                  <span style={{ fontSize: "18px", fontWeight: "bold", color: "white", marginRight: "5px" }}>
+                    TỔNG TIỀN: <span style={{ backgroundColor: "#f25c78", color: "white", padding: "3px 8px", borderRadius: "4px", marginLeft: "5px", fontSize: "0.9em" }}>T{data.month}</span>
+                  </span>
+                  <span style={{ color: "#fccf6e", fontWeight: "bold", fontSize: "20px" }}>
+                    {totalAmount.toLocaleString("vi-VN")} đ
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* QR Code Section - Moved to bottom */}
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", width: "100%" }}>
+              <div
+                style={{
+                  border: "1px solid #ddd",
+                  borderRadius: "15px",
+                  padding: "10px",
+                  textAlign: "center",
+                  background: "white",
+                  width: "100%",
+                  maxWidth: "200px",
+                  position: "relative",
+                  marginBottom: "15px",
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "center", gap: "10px", marginBottom: "5px", color: "red", fontWeight: "bold", fontSize: "12px" }}>
+                  <span>VIETQR</span> <span>VIETQR</span>
+                </div>
+                <img
+                  src={generateVietQR(data.totalAmount, data.studentName, data.month)}
+                  alt="QR Code"
+                  style={{ width: "100%", height: "auto", display: "block" }}
                     crossOrigin="anonymous"
                   />
+                <div style={{ fontSize: "12px", marginTop: "5px", fontWeight: "bold" }}>
+                  Quét mã để thanh toán
                 </div>
+              </div>
+
+              <div style={{ fontSize: "11px", color: "#666", textAlign: "center", lineHeight: "1.4", maxWidth: "500px" }}>
+                Ghi chú: Vui lòng ghi rõ nội dung chuyển khoản: {data.studentName} - T{data.month}
               </div>
             </div>
           </div>
@@ -349,7 +618,7 @@ export const SalarySlip: React.FC<{
           }}
         >
           <img
-            src="/img/logo.png"
+            src="https://www.appsheet.com/template/gettablefileurl?appName=Appsheet-325045268&tableName=Kho%20%E1%BA%A3nh&fileName=Kho%20%E1%BA%A3nh_Images%2F323065b6.%E1%BA%A2nh.115930.png"
             alt="Background Logo"
             style={{
               width: "auto",
@@ -437,6 +706,10 @@ const Receipts: React.FC = () => {
     pricePerSession: "150,000",
     totalAmount: "1,350,000",
     note: "Phụ huynh vui lòng hoàn thành học phí cho con bằng cách quét mã QR.",
+    studentClass: "",
+    discount: "",
+    debtDetail1: "",
+    debtDetail2: "",
   });
 
   // Salary form state
@@ -604,6 +877,68 @@ const Receipts: React.FC = () => {
                         value={tuitionData.totalAmount}
                         readOnly
                         style={{ fontWeight: "bold", color: "#36797f" }}
+                      />
+                    </div>
+                  </Col>
+                </Row>
+
+                <Row gutter={[16, 16]}>
+                  <Col xs={24} md={12}>
+                    <div>
+                      <Text strong style={{ display: "block", marginBottom: 8 }}>
+                        Khối lớp
+                      </Text>
+                      <Input
+                        value={tuitionData.studentClass || ""}
+                        onChange={(e) =>
+                          setTuitionData({ ...tuitionData, studentClass: e.target.value })
+                        }
+                        placeholder="VD: Lớp 5"
+                      />
+                    </div>
+                  </Col>
+                  <Col xs={24} md={12}>
+                    <div>
+                      <Text strong style={{ display: "block", marginBottom: 8 }}>
+                        Miễn giảm (VNĐ)
+                      </Text>
+                      <Input
+                        value={tuitionData.discount || ""}
+                        onChange={(e) =>
+                          setTuitionData({ ...tuitionData, discount: e.target.value })
+                        }
+                        placeholder="VD: 100,000"
+                      />
+                    </div>
+                  </Col>
+                </Row>
+
+                <Row gutter={[16, 16]}>
+                  <Col xs={24} md={12}>
+                    <div>
+                      <Text strong style={{ display: "block", marginBottom: 8 }}>
+                        Chi tiết nợ (Dòng 1)
+                      </Text>
+                      <Input
+                        value={tuitionData.debtDetail1 || ""}
+                        onChange={(e) =>
+                          setTuitionData({ ...tuitionData, debtDetail1: e.target.value })
+                        }
+                        placeholder="Nhập chi tiết nợ..."
+                      />
+                    </div>
+                  </Col>
+                  <Col xs={24} md={12}>
+                    <div>
+                      <Text strong style={{ display: "block", marginBottom: 8 }}>
+                        Chi tiết nợ (Dòng 2)
+                      </Text>
+                      <Input
+                        value={tuitionData.debtDetail2 || ""}
+                        onChange={(e) =>
+                          setTuitionData({ ...tuitionData, debtDetail2: e.target.value })
+                        }
+                        placeholder="Nhập chi tiết nợ..."
                       />
                     </div>
                   </Col>

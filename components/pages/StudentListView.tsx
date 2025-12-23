@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
 import type { ScheduleEvent } from "../../types";
 import { DATABASE_URL_BASE } from "@/firebase";
@@ -3432,6 +3433,7 @@ const StudentTuitionTab: React.FC<{
   extensionHistory: any[];
   attendanceSessions: any[];
 }> = ({ students, extensionHistory, attendanceSessions }) => {
+  const navigate = useNavigate();
   // Bỏ selectedMonth - không dùng tháng nữa, tính học phí cố định
   const [studentInvoices, setStudentInvoices] = useState<Record<string, any>>({});
   const [classes, setClasses] = useState<any[]>([]);
@@ -3916,6 +3918,57 @@ const StudentTuitionTab: React.FC<{
       key: "grade",
       width: 120,
       render: (text: string) => text || "-",
+    },
+    {
+      title: "Lớp học",
+      key: "classes",
+      width: 250,
+      render: (_: any, record: any) => {
+        const studentClasses = record["Lớp học"] || [];
+        if (!Array.isArray(studentClasses) || studentClasses.length === 0) {
+          return <span style={{ color: "#ccc" }}>-</span>;
+        }
+        
+        return (
+          <div style={{ lineHeight: "1.5" }}>
+            {studentClasses.map((classId: string, idx: number) => {
+              const classInfo = classesMap.get(classId);
+              if (!classInfo) return null;
+              
+              const className = classInfo["Tên lớp"] || "";
+              const classCode = classInfo["Mã lớp"] || "";
+              const subject = classInfo["Môn học"] || "";
+              const pricePerSession = getCoursePrice(classInfo, coursesMap);
+              
+              // Format: "Tên lớp(Mã lớp) Môn học1 buổi[giá] đ/buổi"
+              const priceText = pricePerSession ? pricePerSession.toLocaleString("vi-VN") : "0";
+              
+              return (
+                <span key={classId}>
+                  <span
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      navigate(`/workspace/classes/${classId}/grades`);
+                    }}
+                    style={{
+                      cursor: "pointer",
+                      color: "#1890ff",
+                      textDecoration: "underline",
+                    }}
+                    title={`Click để xem lớp ${className}`}
+                  >
+                    {className}{classCode ? `(${classCode})` : ""}
+                  </span>
+                  <span style={{ marginLeft: "4px" }}>
+                    {subject}1 buổi{priceText} đ/buổi
+                  </span>
+                  {idx < studentClasses.length - 1 && <span style={{ marginLeft: "8px" }}> </span>}
+                </span>
+              );
+            })}
+          </div>
+        );
+      },
     },
     {
       title: "Số buổi",

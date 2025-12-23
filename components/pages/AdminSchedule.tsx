@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Card,
   Button,
@@ -24,6 +24,10 @@ import {
   EnvironmentOutlined,
   UserOutlined,
   EditOutlined,
+  MenuUnfoldOutlined,
+  MenuFoldOutlined,
+  ExpandOutlined,
+  CompressOutlined,
 } from "@ant-design/icons";
 import { useClasses } from "../../hooks/useClasses";
 import { Class, ClassSchedule } from "../../types";
@@ -123,19 +127,26 @@ const AdminSchedule = () => {
     targetDate?: Dayjs; // Chỉ dùng cho drag
     newValues?: any; // Chỉ dùng cho edit
   } | null>(null);
+  
+  // State để ẩn/hiện bộ lọc và fullscreen
+  const [showFilter, setShowFilter] = useState(true);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  
+  // State để mở rộng một ngày cụ thể
+  const [expandedDay, setExpandedDay] = useState<Dayjs | null>(null);
 
-  // Màu sắc đậm cho từng giáo viên (Cập nhật màu đậm hơn)
+  // Màu sắc nhạt hơn cho từng giáo viên
   const TEACHER_COLOR_PALETTE = [
-    { bg: "#0050b3", border: "#003a8c", text: "#ffffff" }, // dark blue
-    { bg: "#d46b08", border: "#ad4e00", text: "#ffffff" }, // dark orange
-    { bg: "#389e0d", border: "#237804", text: "#ffffff" }, // dark green
-    { bg: "#c41d7f", border: "#9e1068", text: "#ffffff" }, // dark pink
-    { bg: "#531dab", border: "#391085", text: "#ffffff" }, // dark purple
-    { bg: "#08979c", border: "#006d75", text: "#ffffff" }, // dark cyan
-    { bg: "#d48806", border: "#ad6800", text: "#ffffff" }, // dark yellow
-    { bg: "#1d39c4", border: "#10239e", text: "#ffffff" }, // dark geekblue
-    { bg: "#7cb305", border: "#5b8c00", text: "#ffffff" }, // dark lime
-    { bg: "#cf1322", border: "#a8071a", text: "#ffffff" }, // dark red
+    { bg: "#e6f4ff", border: "#91caff", text: "#0050b3" }, // light blue
+    { bg: "#fff7e6", border: "#ffd591", text: "#d46b08" }, // light orange
+    { bg: "#f6ffed", border: "#b7eb8f", text: "#389e0d" }, // light green
+    { bg: "#fff0f6", border: "#ffadd2", text: "#c41d7f" }, // light pink
+    { bg: "#f9f0ff", border: "#d3adf7", text: "#531dab" }, // light purple
+    { bg: "#e6fffb", border: "#87e8de", text: "#08979c" }, // light cyan
+    { bg: "#fffbe6", border: "#ffe58f", text: "#d48806" }, // light yellow
+    { bg: "#e6f7ff", border: "#91d5ff", text: "#1d39c4" }, // light geekblue
+    { bg: "#fcffe6", border: "#eaff8f", text: "#7cb305" }, // light lime
+    { bg: "#fff1f0", border: "#ffa39e", text: "#cf1322" }, // light red
   ];
 
   // Map lưu màu đã assign cho giáo viên
@@ -246,6 +257,71 @@ const AdminSchedule = () => {
       return `${room["Tên phòng"]} - ${room["Địa điểm"]}`;
     }
     return roomId; // Fallback to ID if room not found
+  };
+
+  // Helper to abbreviate class name (Toán 8 -> T8, Lý 9 -> L9, etc.)
+  const abbreviateClassName = (className: string): string => {
+    if (!className) return "";
+    
+    // Map các môn học phổ biến
+    const subjectMap: Record<string, string> = {
+      "Toán": "T",
+      "Lý": "L",
+      "Hóa": "H",
+      "Văn": "V",
+      "Anh": "A",
+      "Sinh": "S",
+      "Sử": "Sử",
+      "Địa": "Đ",
+      "GDCD": "GD",
+      "Tin": "Tin",
+      "Thể dục": "TD",
+      "Mỹ thuật": "MT",
+      "Âm nhạc": "AN",
+    };
+    
+    // Tìm số trong tên lớp (ví dụ: "Toán 8" -> "8")
+    const numberMatch = className.match(/\d+/);
+    const number = numberMatch ? numberMatch[0] : "";
+    
+    // Tìm môn học
+    for (const [subject, abbrev] of Object.entries(subjectMap)) {
+      if (className.includes(subject)) {
+        return `${abbrev}${number}`;
+      }
+    }
+    
+    // Nếu không tìm thấy, lấy chữ cái đầu của từ đầu tiên + số
+    const words = className.split(/\s+/);
+    if (words.length > 0 && number) {
+      return `${words[0].charAt(0).toUpperCase()}${number}`;
+    }
+    
+    // Fallback: lấy 3 ký tự đầu
+    return className.substring(0, 3).toUpperCase();
+  };
+
+  // Helper to abbreviate room name (Phòng 2 -> P2, Phòng 3 -> P3)
+  const abbreviateRoomName = (roomName: string): string => {
+    if (!roomName) return "";
+    
+    // Tìm số trong tên phòng
+    const numberMatch = roomName.match(/\d+/);
+    const number = numberMatch ? numberMatch[0] : "";
+    
+    // Nếu có "Phòng" hoặc "P" thì viết tắt thành P + số
+    if (roomName.includes("Phòng") || roomName.includes("phòng") || roomName.match(/^P\d+/i)) {
+      return `P${number}`;
+    }
+    
+    // Nếu có số, lấy chữ cái đầu + số
+    if (number) {
+      const firstChar = roomName.charAt(0).toUpperCase();
+      return `${firstChar}${number}`;
+    }
+    
+    // Fallback: lấy 3 ký tự đầu
+    return roomName.substring(0, 3).toUpperCase();
   };
 
   // Helper to get attendance count for a class on a specific date
@@ -610,10 +686,28 @@ const AdminSchedule = () => {
     );
   };
 
+  // Refs để scroll đến các cột ngày
+  const dayRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  
   const goToPreviousWeek = () =>
     setCurrentWeekStart((prev) => prev.subtract(1, "week"));
   const goToNextWeek = () => setCurrentWeekStart((prev) => prev.add(1, "week"));
-  const goToToday = () => setCurrentWeekStart(dayjs().startOf("isoWeek"));
+  const goToToday = () => {
+    // Ẩn bộ lọc để mở rộng lịch
+    setShowFilter(false);
+    // Chuyển đến tuần hiện tại
+    const today = dayjs().startOf("isoWeek");
+    setCurrentWeekStart(today);
+    
+    // Scroll đến cột ngày hôm nay sau khi render
+    setTimeout(() => {
+      const todayIndex = dayjs().day() === 0 ? 6 : dayjs().day() - 1; // Chuyển từ 0-6 sang 0-6 (CN=6)
+      const dayElement = dayRefs.current.get(todayIndex);
+      if (dayElement) {
+        dayElement.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+      }
+    }, 100);
+  };
 
   const isToday = (date: Dayjs) => date.isSame(dayjs(), "day");
 
@@ -1090,13 +1184,15 @@ const AdminSchedule = () => {
         {/* Sidebar */}
         <div
           style={{
-            width: "280px",
+            width: showFilter ? "280px" : "0px",
             flexShrink: 0,
-            display: "flex",
+            display: showFilter ? "flex" : "none",
             flexDirection: "column",
             gap: "16px",
             maxHeight: "100%",
-            overflowY: "auto",
+            overflowY: showFilter ? "auto" : "hidden",
+            transition: "width 0.3s ease, opacity 0.3s ease",
+            opacity: showFilter ? 1 : 0,
           }}
         >
           {/* Mini Calendar */}
@@ -1213,6 +1309,21 @@ const AdminSchedule = () => {
                 </span>
               </Space>
               <Space>
+                {expandedDay && (
+                  <Button
+                    onClick={() => setExpandedDay(null)}
+                    title="Quay lại xem tất cả các ngày"
+                  >
+                    ← Xem tất cả
+                  </Button>
+                )}
+                <Button
+                  icon={showFilter ? <MenuFoldOutlined /> : <MenuUnfoldOutlined />}
+                  onClick={() => setShowFilter(!showFilter)}
+                  title={showFilter ? "Ẩn bộ lọc" : "Hiện bộ lọc"}
+                >
+                  {showFilter ? "Ẩn bộ lọc" : "Hiện bộ lọc"}
+                </Button>
                 <Button 
                   type="primary"
                   style={{ backgroundColor: "#ff9800", borderColor: "#ff9800" }}
@@ -1228,15 +1339,29 @@ const AdminSchedule = () => {
                 <Button icon={<RightOutlined />} onClick={goToNextWeek}>
                   Tuần sau
                 </Button>
+                <Button
+                  icon={isFullscreen ? <CompressOutlined /> : <ExpandOutlined />}
+                  onClick={() => {
+                    setIsFullscreen(!isFullscreen);
+                    if (!isFullscreen) {
+                      document.documentElement.requestFullscreen?.();
+                    } else {
+                      document.exitFullscreen?.();
+                    }
+                  }}
+                  title={isFullscreen ? "Thu nhỏ" : "Mở rộng toàn màn hình"}
+                >
+                  {isFullscreen ? "Thu nhỏ" : "Toàn màn hình"}
+                </Button>
               </Space>
             </div>
           </Card>
 
           {/* Schedule Grid - Hourly View */}
-          <div style={{ flex: 1, overflow: "auto", backgroundColor: "white", border: "1px solid #f0f0f0", borderRadius: "8px" }}>
-            <div style={{ display: "flex", minWidth: "fit-content" }}>
+          <div style={{ flex: 1, overflow: "hidden", backgroundColor: "#fafbfc", border: "1px solid #e8e9ea", borderRadius: "8px", display: "flex", flexDirection: "column", minHeight: 0 }}>
+            <div style={{ display: "flex", width: "100%", flex: 1, minWidth: 0, overflow: "auto" }}>
               {/* Time Column */}
-              <div style={{ width: "60px", flexShrink: 0, borderRight: "1px solid #f0f0f0", backgroundColor: "#fafafa" }}>
+              <div style={{ width: "60px", flexShrink: 0, borderRight: "1px solid #e8e9ea", backgroundColor: "#f5f6f7" }}>
                 {/* Empty header cell */}
                 <div style={{ 
                   height: "60px", 
@@ -1271,28 +1396,53 @@ const AdminSchedule = () => {
               </div>
 
               {/* Day Columns */}
-              {weekDays.map((day, dayIndex) => {
+              {weekDays
+                .filter((day) => !expandedDay || day.isSame(expandedDay, "day"))
+                .map((day, dayIndex) => {
                 const dayEvents = getEventsForDate(day);
                 const positionedEvents = groupOverlappingEvents(dayEvents);
                 const cellKey = `day_${dayIndex}`;
                 const isDragOver = dragOverCell === cellKey;
+                const isTodayColumn = isToday(day);
+                const isExpanded = expandedDay && day.isSame(expandedDay, "day");
 
                 return (
                   <div
                     key={dayIndex}
+                    ref={(el) => {
+                      if (el) {
+                        dayRefs.current.set(dayIndex, el);
+                      } else {
+                        dayRefs.current.delete(dayIndex);
+                      }
+                    }}
                     style={{
-                      flex: 1,
-                      minWidth: "180px",
-                      borderRight: dayIndex < 6 ? "1px solid #f0f0f0" : "none",
+                      flex: isExpanded ? "1 1 100%" : "1 1 0%",
+                      minWidth: isExpanded ? "100%" : "0",
+                      width: isExpanded ? "100%" : "auto",
+                      maxWidth: isExpanded ? "100%" : "none",
+                      borderRight: (dayIndex < 6 && !isExpanded) ? "1px solid #e8e9ea" : "none",
                       position: "relative",
+                      scrollMargin: "0 20px", // Khoảng cách khi scroll đến
+                      transition: "all 0.3s ease",
+                      flexShrink: isExpanded ? 0 : 1,
                     }}
                   >
                     {/* Day Header */}
                     <div
+                      onClick={() => {
+                        if (expandedDay && day.isSame(expandedDay, "day")) {
+                          setExpandedDay(null); // Quay lại chế độ xem tất cả
+                        } else {
+                          setExpandedDay(day); // Mở rộng ngày này
+                        }
+                      }}
                       style={{
                         height: "60px",
-                        borderBottom: "1px solid #f0f0f0",
-                        backgroundColor: isToday(day) ? "#e6f7ff" : "#fafafa",
+                        borderBottom: "1px solid #e8e9ea",
+                        backgroundColor: isTodayColumn ? "#e6f7ff" : isExpanded ? "#e6f7ff" : "#f5f6f7",
+                        borderTop: (isTodayColumn || isExpanded) ? "3px solid #1890ff" : "none",
+                        boxShadow: (isTodayColumn || isExpanded) ? "0 2px 8px rgba(24, 144, 255, 0.15)" : "none",
                         display: "flex",
                         flexDirection: "column",
                         alignItems: "center",
@@ -1300,26 +1450,48 @@ const AdminSchedule = () => {
                         position: "sticky",
                         top: 0,
                         zIndex: 10,
+                        cursor: "pointer",
+                        transition: "all 0.2s",
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!isExpanded && !isTodayColumn) {
+                          e.currentTarget.style.backgroundColor = "#f0f0f0";
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!isExpanded && !isTodayColumn) {
+                          e.currentTarget.style.backgroundColor = "#f5f6f7";
+                        }
                       }}
                     >
-                      <div style={{ fontSize: "12px", color: "#666", textTransform: "capitalize" }}>
+                      <div style={{ fontSize: "12px", color: "#666", textTransform: "capitalize", display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", justifyContent: "center" }}>
                         {day.format("dddd")}
+                        {isExpanded && (
+                          <Tag color="blue" style={{ fontSize: "10px", margin: 0 }}>
+                            Đã mở rộng
+                          </Tag>
+                        )}
                       </div>
                       <div style={{ 
                         fontSize: "20px", 
                         fontWeight: "bold",
-                        color: isToday(day) ? "#1890ff" : "#333",
+                        color: (isToday(day) || isExpanded) ? "#1890ff" : "#333",
                         width: "36px",
                         height: "36px",
                         borderRadius: "50%",
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "center",
-                        backgroundColor: isToday(day) ? "#1890ff" : "transparent",
-                        ...(isToday(day) && { color: "white" })
+                        backgroundColor: (isToday(day) || isExpanded) ? "#1890ff" : "transparent",
+                        ...((isToday(day) || isExpanded) && { color: "white" })
                       }}>
                         {day.format("D")}
                       </div>
+                      {isExpanded && (
+                        <div style={{ fontSize: "10px", color: "#1890ff", marginTop: "4px", fontWeight: "500" }}>
+                          Click để quay lại
+                        </div>
+                      )}
                     </div>
 
                     {/* Hour Grid with Events */}
@@ -1327,7 +1499,7 @@ const AdminSchedule = () => {
                       style={{
                         position: "relative",
                         height: `${HOUR_SLOTS.length * 60}px`,
-                        backgroundColor: isDragOver ? "#e6f7ff" : isToday(day) ? "#fafffe" : "white",
+                        backgroundColor: isDragOver ? "#e6f7ff" : isTodayColumn ? "#f0f8ff" : "#fafbfc",
                       }}
                       onDragOver={(e) => handleDragOver(e, cellKey)}
                       onDragLeave={handleDragLeave}
@@ -1391,8 +1563,10 @@ const AdminSchedule = () => {
                         const isDragging = draggingEvent?.class.id === event.class.id && draggingEvent?.date === event.date;
                         
                         // Calculate width and left position for overlapping events
-                        const width = `calc((100% - 4px) / ${totalColumns})`;
-                        const left = `calc(${column} * (100% - 4px) / ${totalColumns} + 2px)`;
+                        // Width chia đều cột, không tràn sang ngày khác
+                        const gap = 4; // Khoảng cách giữa các event
+                        const width = `calc((100% - ${(totalColumns - 1) * gap}px) / ${totalColumns})`;
+                        const left = `calc(${column} * ((100% - ${(totalColumns - 1) * gap}px) / ${totalColumns} + ${gap}px))`;
 
                         // Màu sắc theo GIÁO VIÊN (Bug 2 - mỗi giáo viên 1 màu)
                         const colorScheme = getTeacherColor(
@@ -1411,17 +1585,23 @@ const AdminSchedule = () => {
                               top: top,
                               left: left,
                               width: width,
-                              height: Math.max(height, 50),
+                              minWidth: 0, // Cho phép co lại, không đẩy sang ngày khác
+                              maxWidth: width, // Giới hạn trong cột
+                              height: Math.max(height, 70), // Chiều cao tối thiểu để hiển thị Tên lớp + Phòng
                               backgroundColor: colorScheme.bg,
                               borderLeft: `4px solid ${colorScheme.border}`,
                               borderRadius: "4px",
-                              padding: "4px 6px",
-                              fontSize: "11px",
-                              overflow: "hidden",
+                              padding: "6px 4px 6px 8px", // Sát mép trái hơn (top right bottom left)
+                              fontSize: "12px",
+                              overflow: "hidden", // Không cho tràn sang cột kế bên
+                              display: "flex",
+                              flexDirection: "column",
+                              justifyContent: "flex-start",
+                              boxSizing: "border-box",
                               cursor: "pointer",
                               opacity: isDragging ? 0.5 : 1,
                               zIndex: 2,
-                              boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+                              boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
                               transition: "all 0.2s",
                             }}
                             onMouseEnter={(e) => {
@@ -1465,20 +1645,84 @@ const AdminSchedule = () => {
                                 trigger="hover"
                                 placement="right"
                               >
-                                <div style={{ height: "100%" }}>
-                                  <div style={{ fontWeight: "bold", color: colorScheme.text, marginBottom: "2px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                                    {event.class["Tên lớp"]}
-                                  </div>
-                                  <div style={{ color: colorScheme.text, fontSize: "10px", opacity: 0.9 }}>
-                                    {event.schedule["Giờ bắt đầu"]} - {event.schedule["Giờ kết thúc"]}
-                                  </div>
-                                  {height > 60 && (
-                                    <div style={{ color: colorScheme.text, fontSize: "10px", marginTop: "2px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", opacity: 0.85 }}>
-                                      {getRoomName(event.class["Phòng học"]) || event.class["Giáo viên chủ nhiệm"]}
+                                <div style={{ 
+                                  height: "100%", 
+                                  display: "flex", 
+                                  flexDirection: "column", 
+                                  gap: "3px", 
+                                  justifyContent: "flex-start",
+                                  minHeight: "60px",
+                                }}>
+                                  {/* Hàng 1: Tên lớp viết tắt - Tên giáo viên */}
+                                  <div style={{ 
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: "6px",
+                                    flexShrink: 0,
+                                    lineHeight: "1.3",
+                                  }}>
+                                    <div style={{ 
+                                      fontWeight: "bold", 
+                                      color: colorScheme.text, 
+                                      fontSize: height < 70 ? "12px" : "13px", 
+                                      whiteSpace: "nowrap",
+                                    }}>
+                                      {abbreviateClassName(event.class["Tên lớp"])}
                                     </div>
-                                  )}
-                                  {event.isCustomSchedule && (
-                                    <Tag color="orange" style={{ fontSize: "9px", marginTop: "2px", padding: "0 4px" }}>
+                                    {event.class["Giáo viên chủ nhiệm"] && (
+                                      <div style={{ 
+                                        color: colorScheme.text, 
+                                        fontSize: height < 70 ? "9px" : "10px", 
+                                        opacity: 0.85, 
+                                        whiteSpace: "nowrap",
+                                        overflow: "hidden",
+                                        textOverflow: "ellipsis",
+                                        flex: 1,
+                                      }}>
+                                        {event.class["Giáo viên chủ nhiệm"]}
+                                      </div>
+                                    )}
+                                  </div>
+                                  
+                                  {/* Hàng 2: Phòng học viết tắt - Lịch học (giờ) */}
+                                  <div style={{ 
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: "6px",
+                                    flexShrink: 0,
+                                    lineHeight: "1.3",
+                                  }}>
+                                    {getRoomName(event.class["Phòng học"]) && (
+                                      <div style={{ 
+                                        color: colorScheme.text, 
+                                        fontSize: height < 70 ? "10px" : "11px", 
+                                        opacity: 0.9, 
+                                        whiteSpace: "nowrap",
+                                        fontWeight: "500",
+                                      }}>
+                                        {abbreviateRoomName(getRoomName(event.class["Phòng học"]))}
+                                      </div>
+                                    )}
+                                    <div style={{ 
+                                      color: colorScheme.text, 
+                                      fontSize: height < 70 ? "9px" : "10px", 
+                                      opacity: 0.85, 
+                                      whiteSpace: "nowrap",
+                                      flex: 1,
+                                    }}>
+                                      {event.schedule["Giờ bắt đầu"]} - {event.schedule["Giờ kết thúc"]}
+                                    </div>
+                                  </div>
+                                  
+                                  {/* Tag Đã sửa - Hiển thị nếu có đủ không gian */}
+                                  {event.isCustomSchedule && height > 70 && (
+                                    <Tag color="orange" style={{ 
+                                      fontSize: "8px", 
+                                      marginTop: "2px", 
+                                      padding: "1px 4px", 
+                                      alignSelf: "flex-start",
+                                      lineHeight: "1.2",
+                                    }}>
                                       Đã sửa
                                     </Tag>
                                   )}
