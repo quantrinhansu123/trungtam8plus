@@ -411,7 +411,7 @@ const FinancialSummaryPage = () => {
       classId: string;
       className: string;
       totalSessions: number;
-      totalStudents: Set<string>; // Tổng số học sinh (unique)
+      totalStudents: number; // Tổng số học sinh (unique)
       totalRevenue: number;
       avgRevenuePerSession: number;
     }> = {};
@@ -484,7 +484,7 @@ const FinancialSummaryPage = () => {
             classId,
             className,
             totalSessions: 0,
-            totalStudents: new Set<string>(),
+            totalStudents: new Set<string>() as any,
             totalRevenue: 0,
             avgRevenuePerSession: pricePerSession,
           };
@@ -492,7 +492,7 @@ const FinancialSummaryPage = () => {
 
         // Add sessions and revenue proportionally
         classRevenueMap[classId].totalSessions += dist.sessions;
-        classRevenueMap[classId].totalStudents.add(studentId);
+        (classRevenueMap[classId].totalStudents as Set<string>).add(studentId);
         // Distribute amount proportionally based on sessions
         const classAmount = (dist.sessions / invoiceTotalSessions) * invoiceTotalAmount;
         classRevenueMap[classId].totalRevenue += classAmount;
@@ -502,7 +502,7 @@ const FinancialSummaryPage = () => {
     // Convert Set to number for totalStudents
     const result = Object.values(classRevenueMap).map(item => ({
       ...item,
-      totalStudents: item.totalStudents.size || 0,
+      totalStudents: (item.totalStudents as Set<string>).size || 0,
     })).sort((a, b) => b.totalRevenue - a.totalRevenue);
 
     // Debug: Log totals for verification
@@ -1729,56 +1729,6 @@ const FinancialSummaryPage = () => {
           </Row>
         )}
 
-        {/* Revenue by Class */}
-        <Card
-          title={
-            <Space>
-              <Text strong>Học phí từ hóa đơn</Text>
-              <Tag color="green">
-                {viewMode === "month"
-                  ? `Tháng ${selectedMonth + 1}/${selectedYear}`
-                  : `Năm ${selectedYear}`}
-              </Tag>
-            </Space>
-          }
-        >
-          <Table
-            columns={revenueByClassColumns}
-            dataSource={revenueByClassWithTeacher}
-            pagination={false}
-            rowKey="classId"
-            size="small"
-            loading={loading}
-            summary={() => (
-              <Table.Summary fixed>
-                <Table.Summary.Row>
-                  <Table.Summary.Cell index={0} colSpan={2} align="right">
-                    <Text strong>Tổng cộng:</Text>
-                  </Table.Summary.Cell>
-                  <Table.Summary.Cell index={2} align="center">
-                    <Text strong>
-                      {revenueByClass.reduce((sum, item) => sum + item.totalSessions, 0)}
-                    </Text>
-                  </Table.Summary.Cell>
-                  <Table.Summary.Cell index={3} align="center">
-                    <Text strong>
-                      {revenueByClass.reduce((sum, item) => sum + item.totalStudents, 0)}
-                    </Text>
-                  </Table.Summary.Cell>
-                  <Table.Summary.Cell index={4} align="right">
-                    <Text>-</Text>
-                  </Table.Summary.Cell>
-                  <Table.Summary.Cell index={5} align="right">
-                    <Text strong style={{ color: "#3f8600", fontSize: "16px" }}>
-                      {totalRevenueFromInvoices.toLocaleString("vi-VN")} đ
-                    </Text>
-                  </Table.Summary.Cell>
-                </Table.Summary.Row>
-              </Table.Summary>
-            )}
-          />
-        </Card>
-
         {/* Students without invoices */}
         {studentsWithoutInvoices.length > 0 && (
           <Card
@@ -2055,7 +2005,7 @@ const FinancialSummaryPage = () => {
               }}
               onBlur={(e) => {
                 // When user clicks away, if they typed a new value, add it
-                const inputValue = ((e.currentTarget as HTMLInputElement).value || "").trim();
+                const inputValue = e.currentTarget.value?.trim();
                 if (inputValue && !expenseCategories.includes(inputValue)) {
                   addExpenseCategory(inputValue);
                   form.setFieldsValue({ category: inputValue });
@@ -2064,8 +2014,8 @@ const FinancialSummaryPage = () => {
               }}
               onKeyDown={(e) => {
                 // When user presses Enter on a new value
-                if ((e as any).key === 'Enter') {
-                  const inputValue = ((e.currentTarget as HTMLInputElement).value || "").trim();
+                if (e.key === 'Enter') {
+                  const inputValue = (e.currentTarget as HTMLInputElement).value?.trim();
                   if (inputValue && !expenseCategories.includes(inputValue)) {
                     e.preventDefault();
                     addExpenseCategory(inputValue);

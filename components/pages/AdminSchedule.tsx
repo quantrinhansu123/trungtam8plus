@@ -30,9 +30,9 @@ import {
   CompressOutlined,
 } from "@ant-design/icons";
 import { useClasses } from "../../hooks/useClasses";
-import { Class, ClassSchedule } from "../../types";
+import { Class, ClassSchedule, AttendanceSession } from "../../types";
 import { useNavigate } from "react-router-dom";
-import { ref, onValue, set, push, remove, update } from "firebase/database";
+import { ref, onValue, set, push, remove, update, get } from "firebase/database";
 import { database } from "../../firebase";
 import dayjs, { Dayjs } from "dayjs";
 import isSameOrAfter from "dayjs/plugin/isSameOrAfter";
@@ -259,46 +259,153 @@ const AdminSchedule = () => {
     return roomId; // Fallback to ID if room not found
   };
 
-  // Helper to abbreviate class name (Toán 8 -> T8, Lý 9 -> L9, etc.)
-  const abbreviateClassName = (className: string): string => {
-    if (!className) return "";
+  // Helper to get subject abbreviation (1 chữ): Vật lý -> Lý, Toán -> Toán, Tiếng Anh -> Anh
+  const getSubjectAbbreviation = (subjectName: string): string => {
+    if (!subjectName) return "";
     
-    // Map các môn học phổ biến
+    // Map tên môn đầy đủ sang 1 chữ
     const subjectMap: Record<string, string> = {
-      "Toán": "T",
-      "Lý": "L",
-      "Hóa": "H",
-      "Văn": "V",
-      "Anh": "A",
-      "Sinh": "S",
+      "Toán": "Toán",
+      "Vật lý": "Lý",
+      "Lý": "Lý",
+      "Tiếng Anh": "Anh",
+      "Anh": "Anh",
+      "T.Anh": "Anh",
+      "Hóa học": "Hóa",
+      "Hóa": "Hóa",
+      "Ngữ văn": "Văn",
+      "Văn": "Văn",
+      "Sinh học": "Sinh",
+      "Sinh": "Sinh",
+      "Lịch sử": "Sử",
       "Sử": "Sử",
-      "Địa": "Đ",
-      "GDCD": "GD",
+      "Địa lý": "Địa",
+      "Địa": "Địa",
+      "GDCD": "GDCD",
+      "Tin học": "Tin",
       "Tin": "Tin",
       "Thể dục": "TD",
       "Mỹ thuật": "MT",
       "Âm nhạc": "AN",
     };
     
-    // Tìm số trong tên lớp (ví dụ: "Toán 8" -> "8")
-    const numberMatch = className.match(/\d+/);
-    const number = numberMatch ? numberMatch[0] : "";
+    // Tìm trong map - ưu tiên match chính xác trước
+    if (subjectMap[subjectName]) {
+      return subjectMap[subjectName];
+    }
     
-    // Tìm môn học
-    for (const [subject, abbrev] of Object.entries(subjectMap)) {
-      if (className.includes(subject)) {
-        return `${abbrev}${number}`;
+    // Sau đó tìm partial match
+    for (const [full, abbrev] of Object.entries(subjectMap)) {
+      if (subjectName.includes(full)) {
+        return abbrev;
       }
     }
     
-    // Nếu không tìm thấy, lấy chữ cái đầu của từ đầu tiên + số
-    const words = className.split(/\s+/);
-    if (words.length > 0 && number) {
-      return `${words[0].charAt(0).toUpperCase()}${number}`;
+    // Nếu không tìm thấy, trả về chữ đầu tiên
+    return subjectName.charAt(0).toUpperCase();
+  };
+
+  // Helper to format class name with full Vietnamese name: T5 -> Toán 5, L5 -> Lý 5
+  const formatShortClassName = (className: string, subjectName?: string): string => {
+    if (!className) return "";
+    
+    // Lấy số từ tên lớp (ví dụ: "Toán 5" -> "5")
+    const numberMatch = className.match(/\d+/);
+    const number = numberMatch ? numberMatch[0] : "";
+    
+    // Nếu có subjectName, dùng nó để lấy tên môn đầy đủ
+    if (subjectName) {
+      // Convert từ key tiếng Anh sang tiếng Việt nếu cần (ví dụ: "Literature" -> "Ngữ văn")
+      const vietnameseSubject = subjectMap[subjectName] || subjectName;
+      const subjectAbbrev = getSubjectAbbreviation(vietnameseSubject);
+      return number ? `${subjectAbbrev} ${number}` : subjectAbbrev;
     }
     
-    // Fallback: lấy 3 ký tự đầu
-    return className.substring(0, 3).toUpperCase();
+    // Nếu không có subjectName, tìm từ className
+    // Map viết tắt sang tên đầy đủ tiếng Việt
+    const abbrevToFull: Record<string, string> = {
+      "T": "Toán",
+      "Toán": "Toán",
+      "TA": "Anh",
+      "A": "Anh",
+      "Anh": "Anh",
+      "L": "Lý",
+      "Lý": "Lý",
+      "H": "Hóa",
+      "Hóa": "Hóa",
+      "V": "Văn",
+      "Văn": "Văn",
+      "S": "Sinh",
+      "Sinh": "Sinh",
+      "Đ": "Địa",
+      "Địa": "Địa",
+      "GD": "GDCD",
+      "TD": "Thể dục",
+      "MT": "Mỹ thuật",
+      "AN": "Âm nhạc",
+      "Tin": "Tin",
+    };
+    
+    // Loại bỏ số và khoảng trắng để tìm viết tắt
+    const abbrev = className.replace(/\d+/g, "").trim();
+    
+    // Tìm trong map
+    for (const [key, value] of Object.entries(abbrevToFull)) {
+      if (abbrev.includes(key) || className.includes(key)) {
+        return number ? `${value} ${number}` : value;
+      }
+    }
+    
+    // Nếu không tìm thấy, trả về tên gốc
+    return className;
+  };
+
+  // Helper to format full class name (T5 -> Toán 5, TA 5 -> T.Anh 5, etc.)
+  const formatFullClassName = (className: string): string => {
+    if (!className) return "";
+    
+    // Nếu tên lớp đã đầy đủ (chứa "Toán", "Anh", v.v.), trả về nguyên nhưng chuyển "T.Anh" thành "Anh"
+    if (className.includes("Toán") || className.includes("T.Anh") || 
+        className.includes("Lý") || className.includes("Hóa") || 
+        className.includes("Văn") || className.includes("Anh") ||
+        className.includes("Sinh") || className.includes("Sử") ||
+        className.includes("Địa") || className.includes("GDCD") ||
+        className.includes("Tin") || className.includes("Thể dục") ||
+        className.includes("Mỹ thuật") || className.includes("Âm nhạc")) {
+      // Chuyển "T.Anh" thành "Anh"
+      return className.replace(/T\.Anh/g, "Anh");
+    }
+    
+    // Map viết tắt sang tên đầy đủ
+    const abbrevToFull: Record<string, string> = {
+      "T": "Toán",
+      "TA": "Anh",
+      "A": "Anh",
+      "L": "Lý",
+      "H": "Hóa",
+      "V": "Văn",
+      "S": "Sinh",
+      "Đ": "Địa",
+      "GD": "GDCD",
+      "TD": "Thể dục",
+      "MT": "Mỹ thuật",
+      "AN": "Âm nhạc",
+    };
+    
+    // Tìm số trong tên lớp (ví dụ: "T5" -> "5")
+    const numberMatch = className.match(/\d+/);
+    const number = numberMatch ? numberMatch[0] : "";
+    
+    // Loại bỏ số và khoảng trắng để tìm viết tắt
+    const abbrev = className.replace(/\d+/g, "").trim();
+    
+    // Tìm môn học từ viết tắt
+    if (abbrevToFull[abbrev] && number) {
+      return `${abbrevToFull[abbrev]} ${number}`;
+    }
+    
+    // Nếu không tìm thấy, trả về tên gốc
+    return className;
   };
 
   // Helper to abbreviate room name (Phòng 2 -> P2, Phòng 3 -> P3)
@@ -1333,7 +1440,7 @@ const AdminSchedule = () => {
                     setIsStaffScheduleModalOpen(true);
                   }}
                 >
-                  + Thêm lịch trực
+                  + Thêm lịch học
                 </Button>
                 <Button onClick={goToToday}>Hôm nay</Button>
                 <Button icon={<RightOutlined />} onClick={goToNextWeek}>
@@ -1667,7 +1774,7 @@ const AdminSchedule = () => {
                                       fontSize: height < 70 ? "12px" : "13px", 
                                       whiteSpace: "nowrap",
                                     }}>
-                                      {abbreviateClassName(event.class["Tên lớp"])}
+                                      {formatShortClassName(event.class["Tên lớp"], event.class["Môn học"])}
                                     </div>
                                     {event.class["Giáo viên chủ nhiệm"] && (
                                       <div style={{ 
@@ -1988,12 +2095,12 @@ const AdminSchedule = () => {
         </Form>
       </Modal>
 
-      {/* Staff Schedule Modal */}
+      {/* Makeup Class Schedule Modal */}
       <Modal
         title={
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <span style={{ fontSize: "20px" }}>🏢</span>
-            <span>{editingStaffSchedule ? "Chỉnh sửa lịch trực" : "Thêm lịch trực trung tâm"}</span>
+            <span style={{ fontSize: "20px" }}>📚</span>
+            <span>{editingStaffSchedule ? "Chỉnh sửa lịch học" : "Thêm lịch học"}</span>
           </div>
         }
         open={isStaffScheduleModalOpen}
@@ -2005,7 +2112,7 @@ const AdminSchedule = () => {
         onOk={() => staffScheduleForm.submit()}
         okText={editingStaffSchedule ? "Cập nhật" : "Thêm lịch"}
         cancelText="Hủy"
-        width={500}
+        width={600}
         footer={
           <Space>
             {editingStaffSchedule && (
@@ -2014,21 +2121,33 @@ const AdminSchedule = () => {
                 onClick={async () => {
                   Modal.confirm({
                     title: "Xác nhận xóa",
-                    content: "Bạn có chắc muốn xóa lịch trực này?",
+                    content: "Bạn có chắc muốn xóa lịch học này?",
                     okText: "Xóa",
                     cancelText: "Hủy",
                     okButtonProps: { danger: true },
                     onOk: async () => {
                       try {
-                        const scheduleRef = ref(database, `datasheet/Lịch_trực_trung_tâm/${editingStaffSchedule.id}`);
-                        await remove(scheduleRef);
-                        message.success("Đã xóa lịch trực");
+                        // Xóa attendance session tương ứng
+                        const sessionsRef = ref(database, "datasheet/Điểm_danh_sessions");
+                        const snapshot = await get(sessionsRef);
+                        if (snapshot.exists()) {
+                          const sessions = snapshot.val();
+                          for (const [sessionId, session] of Object.entries(sessions)) {
+                            const s = session as any;
+                            if (s["Class ID"] === editingStaffSchedule?.["Class ID"] && 
+                                s["Ngày"] === editingStaffSchedule?.["Ngày"]) {
+                              await remove(ref(database, `datasheet/Điểm_danh_sessions/${sessionId}`));
+                              break;
+                            }
+                          }
+                        }
+                        message.success("Đã xóa lịch học");
                         setIsStaffScheduleModalOpen(false);
                         setEditingStaffSchedule(null);
                         staffScheduleForm.resetFields();
                       } catch (error) {
-                        console.error("Error deleting staff schedule:", error);
-                        message.error("Lỗi khi xóa lịch trực");
+                        console.error("Error deleting makeup schedule:", error);
+                        message.error("Lỗi khi xóa lịch học");
                       }
                     },
                   });
@@ -2055,148 +2174,104 @@ const AdminSchedule = () => {
           layout="vertical"
           onFinish={async (values) => {
             try {
-              if (editingStaffSchedule) {
-                // Update existing - only one schedule
-                const scheduleData: Partial<StaffSchedule> = {
-                  "Tên": "Nhân viên trực trung tâm",
-                  "Thứ": values.schedules[0].day,
-                  "Giờ bắt đầu": values.schedules[0].startTime.format("HH:mm"),
-                  "Giờ kết thúc": values.schedules[0].endTime.format("HH:mm"),
-                  "Ghi chú": values.schedules[0].note || "",
-                };
-                const scheduleRef = ref(database, `datasheet/Lịch_trực_trung_tâm/${editingStaffSchedule.id}`);
-                await update(scheduleRef, scheduleData);
-                message.success("Đã cập nhật lịch trực");
-              } else {
-                // Create new - can create multiple with different times
-                const schedulesRef = ref(database, "datasheet/Lịch_trực_trung_tâm");
-                
-                // values.schedules is an array of {day, startTime, endTime, note}
-                for (const schedule of values.schedules || []) {
-                  const scheduleData: Partial<StaffSchedule> = {
-                    "Tên": "Nhân viên trực trung tâm",
-                    "Thứ": schedule.day,
-                    "Giờ bắt đầu": schedule.startTime.format("HH:mm"),
-                    "Giờ kết thúc": schedule.endTime.format("HH:mm"),
-                    "Ghi chú": schedule.note || "",
-                  };
-                  await push(schedulesRef, scheduleData);
-                }
-                
-                message.success(`Đã thêm ${values.schedules?.length || 0} lịch trực`);
+              const selectedClass = classes.find(c => c.id === values.classId);
+              if (!selectedClass) {
+                message.error("Vui lòng chọn lớp");
+                return;
               }
 
+              const sessionDate = values.date.format("YYYY-MM-DD");
+              const startTime = values.startTime.format("HH:mm");
+              const endTime = values.endTime.format("HH:mm");
+
+              // Tạo attendance session với trạng thái not_started
+              const sessionData: Omit<AttendanceSession, "id"> = {
+                "Mã lớp": selectedClass["Mã lớp"],
+                "Tên lớp": selectedClass["Tên lớp"],
+                "Class ID": selectedClass.id,
+                "Ngày": sessionDate,
+                "Giờ bắt đầu": startTime,
+                "Giờ kết thúc": endTime,
+                "Giáo viên": selectedClass["Giáo viên chủ nhiệm"] || "",
+                "Teacher ID": selectedClass["Teacher ID"] || "",
+                "Trạng thái": "not_started",
+                "Điểm danh": [],
+                "Timestamp": dayjs().format("YYYY-MM-DD HH:mm:ss"),
+              };
+
+              const sessionsRef = ref(database, "datasheet/Điểm_danh_sessions");
+              await push(sessionsRef, sessionData);
+              
+              message.success("Đã thêm lịch học và tạo session điểm danh");
               setIsStaffScheduleModalOpen(false);
               setEditingStaffSchedule(null);
               staffScheduleForm.resetFields();
             } catch (error) {
-              console.error("Error saving staff schedule:", error);
-              message.error("Lỗi khi lưu lịch trực");
+              console.error("Error saving makeup schedule:", error);
+              message.error("Lỗi khi lưu lịch học");
             }
           }}
         >
-          {!editingStaffSchedule && (
-            <div style={{ marginBottom: "16px", padding: "12px", backgroundColor: "#f5f5f5", borderRadius: "8px" }}>
-              <div style={{ fontSize: "13px", color: "#666", marginBottom: "8px" }}>
-                ✨ <strong>Tip:</strong> Thêm lịch trực cho nhiều thứ với giờ khác nhau. Mỗi thứ có thể có khung giờ riêng.
-              </div>
+          <div style={{ marginBottom: "16px", padding: "12px", backgroundColor: "#f5f5f5", borderRadius: "8px" }}>
+            <div style={{ fontSize: "13px", color: "#666" }}>
+              ✨ <strong>Lưu ý:</strong> Khi thêm lịch học, hệ thống sẽ tự động tạo session điểm danh cho lớp này.
             </div>
-          )}
+          </div>
 
-          <Form.List
-            name="schedules"
-            rules={[
-              {
-                validator: async (_, schedules) => {
-                  if (!schedules || schedules.length < 1) {
-                    return Promise.reject(new Error("Vui lòng thêm ít nhất một lịch trực"));
-                  }
-                },
-              },
-            ]}
+          <Form.Item
+            label="Lớp học"
+            name="classId"
+            rules={[{ required: true, message: "Vui lòng chọn lớp" }]}
           >
-            {(fields, { add, remove }) => (
-              <>
-                {fields.map((field, index) => (
-                  <Card
-                    key={field.key}
-                    size="small"
-                    style={{ marginBottom: "12px" }}
-                    extra={
-                      fields.length > 1 && (
-                        <Button
-                          type="text"
-                          danger
-                          onClick={() => remove(field.name)}
-                          style={{ padding: "4px 8px", height: "auto" }}
-                        >
-                          Xóa
-                        </Button>
-                      )
-                    }
-                  >
-                    <Form.Item
-                      {...field}
-                      label="Thứ"
-                      name={[field.name, "day"]}
-                      rules={[{ required: true, message: "Chọn thứ" }]}
-                    >
-                      <Select placeholder="Chọn thứ">
-                        <Select.Option value={2}>Thứ 2</Select.Option>
-                        <Select.Option value={3}>Thứ 3</Select.Option>
-                        <Select.Option value={4}>Thứ 4</Select.Option>
-                        <Select.Option value={5}>Thứ 5</Select.Option>
-                        <Select.Option value={6}>Thứ 6</Select.Option>
-                        <Select.Option value={7}>Thứ 7</Select.Option>
-                        <Select.Option value={8}>Chủ nhật</Select.Option>
-                      </Select>
-                    </Form.Item>
+            <Select 
+              placeholder="Chọn lớp học"
+              showSearch
+              filterOption={(input, option) =>
+                (option?.label ?? "").toLowerCase().includes(input.toLowerCase())
+              }
+              options={classes.map(c => ({
+                label: `${c["Tên lớp"]} - ${subjectMap[c["Môn học"]] || c["Môn học"]}`,
+                value: c.id,
+              }))}
+            />
+          </Form.Item>
 
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-                      <Form.Item
-                        {...field}
-                        label="Giờ bắt đầu"
-                        name={[field.name, "startTime"]}
-                        rules={[{ required: true, message: "Chọn giờ bắt đầu" }]}
-                      >
-                        <TimePicker format="HH:mm" style={{ width: "100%" }} />
-                      </Form.Item>
+          <Form.Item
+            label="Ngày học"
+            name="date"
+            rules={[{ required: true, message: "Vui lòng chọn ngày" }]}
+          >
+            <DatePicker 
+              format="DD/MM/YYYY"
+              style={{ width: "100%" }}
+              placeholder="Chọn ngày học"
+            />
+          </Form.Item>
 
-                      <Form.Item
-                        {...field}
-                        label="Giờ kết thúc"
-                        name={[field.name, "endTime"]}
-                        rules={[{ required: true, message: "Chọn giờ kết thúc" }]}
-                      >
-                        <TimePicker format="HH:mm" style={{ width: "100%" }} />
-                      </Form.Item>
-                    </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+            <Form.Item
+              label="Giờ bắt đầu"
+              name="startTime"
+              rules={[{ required: true, message: "Chọn giờ bắt đầu" }]}
+            >
+              <TimePicker format="HH:mm" style={{ width: "100%" }} />
+            </Form.Item>
 
-                    <Form.Item
-                      {...field}
-                      label="Ghi chú"
-                      name={[field.name, "note"]}
-                    >
-                      <Input.TextArea rows={2} placeholder="Ghi chú (tùy chọn)" />
-                    </Form.Item>
-                  </Card>
-                ))}
+            <Form.Item
+              label="Giờ kết thúc"
+              name="endTime"
+              rules={[{ required: true, message: "Chọn giờ kết thúc" }]}
+            >
+              <TimePicker format="HH:mm" style={{ width: "100%" }} />
+            </Form.Item>
+          </div>
 
-                {!editingStaffSchedule && (
-                  <Button
-                    type="dashed"
-                    block
-                    onClick={() => {
-                      add();
-                    }}
-                    style={{ marginBottom: "12px" }}
-                  >
-                    + Thêm lịch trực khác
-                  </Button>
-                )}
-              </>
-            )}
-          </Form.List>
+          <Form.Item
+            label="Ghi chú"
+            name="note"
+          >
+            <Input.TextArea rows={2} placeholder="Ghi chú (tùy chọn)" />
+          </Form.Item>
         </Form>
       </Modal>
     </WrapperContent>

@@ -1045,7 +1045,7 @@ const ClassGradeBook = () => {
         width={1000}
       >
         {selectedStudent && (() => {
-          // Get all sessions for this student
+          // Get all sessions for this student - chỉ hiển thị sessions sau ngày đăng ký
           const studentSessions = attendanceSessions
             .filter((session) => {
               if (session["Class ID"] !== classData?.id) return false;
@@ -1054,7 +1054,21 @@ const ClassGradeBook = () => {
                 ? session["Điểm danh"] 
                 : Object.values(session["Điểm danh"] || {});
               
-              return records.some((r: any) => String(r["Student ID"]) === String(selectedStudent.studentId));
+              const hasRecord = records.some((r: any) => String(r["Student ID"]) === String(selectedStudent.studentId));
+              if (!hasRecord) return false;
+              
+              // Check enrollment date - chỉ hiển thị sessions sau ngày đăng ký
+              if (classData) {
+                const enrollments = classData["Student Enrollments"] || {};
+                if (enrollments[selectedStudent.studentId]) {
+                  const enrollmentDate = enrollments[selectedStudent.studentId].enrollmentDate;
+                  const sessionDate = session["Ngày"];
+                  // Chỉ hiển thị nếu học sinh đã đăng ký trước hoặc trong ngày session
+                  if (enrollmentDate > sessionDate) return false;
+                }
+              }
+              
+              return true;
             })
             .sort((a, b) => {
               const dateA = dayjs(a["Ngày"]);

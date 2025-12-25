@@ -17,8 +17,10 @@ import {
   Upload,
   List,
   TimePicker,
+  Row,
+  Col,
 } from "antd";
-import { SaveOutlined, CheckOutlined, GiftOutlined, HistoryOutlined, EditOutlined, DeleteOutlined, ClockCircleOutlined, LoginOutlined, LogoutOutlined, UploadOutlined, PaperClipOutlined, FileOutlined } from "@ant-design/icons";
+import { SaveOutlined, CheckOutlined, GiftOutlined, HistoryOutlined, EditOutlined, DeleteOutlined, ClockCircleOutlined, LoginOutlined, LogoutOutlined, UploadOutlined, PaperClipOutlined, FileOutlined, DownloadOutlined } from "@ant-design/icons";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ref, onValue, push, set, update, remove } from "firebase/database";
 import { database, DATABASE_URL_BASE } from "../../firebase";
@@ -88,6 +90,17 @@ const AttendanceSessionPage = () => {
     uploadedAt: string;
   }>>([]);
   const [uploadingAttachment, setUploadingAttachment] = useState(false);
+  
+  // State cho nội dung buổi học
+  const [lessonContent, setLessonContent] = useState<string>("");
+  // State cho tài liệu đính kèm nội dung buổi học
+  const [lessonAttachments, setLessonAttachments] = useState<Array<{
+    name: string;
+    url: string;
+    type: string;
+    uploadedAt: string;
+  }>>([]);
+  const [uploadingLessonAttachment, setUploadingLessonAttachment] = useState(false);
   
   // Bug 9: State cho bài tập buổi trước
   const [previousHomework, setPreviousHomework] = useState<{
@@ -310,7 +323,23 @@ const AttendanceSessionPage = () => {
           if (!existingSession || existingSession.id !== existing.id) {
             setExistingSession(existing);
             setSessionId(existing.id);
-            setAttendanceRecords(existing["Điểm danh"] || []);
+            
+            // Filter attendance records theo enrollment date - chỉ hiển thị học sinh đã đăng ký trước hoặc trong ngày session
+            const enrollments = classData["Student Enrollments"] || {};
+            const filteredAttendanceRecords = (existing["Điểm danh"] || []).filter((record: AttendanceRecord) => {
+              const studentId = record["Student ID"];
+              // Nếu không có enrollment date (backward compatibility), hiển thị học sinh
+              if (!enrollments[studentId]) return true;
+              
+              // Chỉ hiển thị nếu học sinh đã đăng ký trước hoặc trong ngày session
+              const enrollmentDate = enrollments[studentId].enrollmentDate;
+              return enrollmentDate <= sessionDate;
+            });
+            
+            setAttendanceRecords(filteredAttendanceRecords);
+            setLessonContent(existing["Nội dung buổi học"] || "");
+            // Load tài liệu đính kèm nội dung buổi học
+            setLessonAttachments(existing["Tài liệu nội dung"] || []);
             setHomeworkDescription(existing["Bài tập"]?.["Mô tả"] || "");
             setTotalExercises(existing["Bài tập"]?.["Tổng số bài"] || 0);
             // Bug 8: Load tài liệu đính kèm từ session hiện tại
@@ -332,9 +361,18 @@ const AttendanceSessionPage = () => {
           ...(value as Omit<Student, "id">),
         }));
 
-        const classStudents = allStudents.filter((s) =>
-          classData["Student IDs"]?.includes(s.id)
-        );
+        // Filter students by enrollment date - only show students enrolled on or before session date
+        const enrollments = classData["Student Enrollments"] || {};
+        const classStudents = allStudents.filter((s) => {
+          if (!classData["Student IDs"]?.includes(s.id)) return false;
+          
+          // If no enrollment date recorded, show the student (backward compatibility)
+          if (!enrollments[s.id]) return true;
+          
+          // Check if student enrolled on or before session date
+          const enrollmentDate = enrollments[s.id].enrollmentDate;
+          return enrollmentDate <= sessionDate;
+        });
 
         setStudents(classStudents);
       }
@@ -411,6 +449,38 @@ const AttendanceSessionPage = () => {
   // Bug 8: Remove attachment
   const handleRemoveAttachment = (index: number) => {
     setHomeworkAttachments(prev => prev.filter((_, i) => i !== index));
+    message.info("Đã xóa tài liệu");
+  };
+
+  // Handle upload lesson attachment
+  const handleUploadLessonAttachment = async (file: File) => {
+    setUploadingLessonAttachment(true);
+    try {
+      const folderPath = generateFolderPath(classData?.id || "unknown");
+      const result = await uploadToCloudinary(file, folderPath);
+      
+      if (result.success && result.url) {
+        const newAttachment = {
+          name: file.name,
+          url: result.url,
+          type: file.type,
+          uploadedAt: new Date().toISOString(),
+        };
+        setLessonAttachments(prev => [...prev, newAttachment]);
+        message.success(`Đã tải lên: ${file.name}`);
+      } else {
+        message.error(result.error || "Lỗi khi tải file");
+      }
+    } catch (error: any) {
+      message.error(`Lỗi upload: ${error.message}`);
+    } finally {
+      setUploadingLessonAttachment(false);
+    }
+  };
+
+  // Remove lesson attachment
+  const handleRemoveLessonAttachment = (index: number) => {
+    setLessonAttachments(prev => prev.filter((_, i) => i !== index));
     message.info("Đã xóa tài liệu");
   };
 
@@ -1128,6 +1198,8 @@ const AttendanceSessionPage = () => {
           "Điểm danh": attendanceRecords,
           "Thời gian hoàn thành": completionTime,
           "Người hoàn thành": completionPerson,
+          "Nội dung buổi học": lessonContent || "",
+          "Tài liệu nội dung": lessonAttachments.length > 0 ? lessonAttachments : undefined,
           "Bài tập":
             homeworkDescription || totalExercises || homeworkAttachments.length > 0
               ? {
@@ -1187,6 +1259,8 @@ const AttendanceSessionPage = () => {
           "Người điểm danh": attendanceInfo.person,
           "Thời gian hoàn thành": completionTime,
           "Người hoàn thành": completionPerson,
+          "Nội dung buổi học": lessonContent || "",
+          "Tài liệu nội dung": lessonAttachments.length > 0 ? lessonAttachments : undefined,
           "Bài tập":
             homeworkDescription || totalExercises || homeworkAttachments.length > 0
               ? {
@@ -1885,94 +1959,310 @@ const AttendanceSessionPage = () => {
                 <p><strong>Tổng số bài:</strong> {previousHomework.totalExercises} bài</p>
                 {previousHomework.attachments && previousHomework.attachments.length > 0 && (
                   <div>
-                    <strong>Tài liệu:</strong>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                      <strong>Tài liệu:</strong>
+                      {previousHomework.attachments.length > 1 && (
+                        <Button
+                          type="link"
+                          size="small"
+                          icon={<DownloadOutlined />}
+                          onClick={() => {
+                            previousHomework.attachments.forEach((item: any) => {
+                              const link = document.createElement('a');
+                              link.href = item.url;
+                              link.download = item.name;
+                              link.target = '_blank';
+                              document.body.appendChild(link);
+                              link.click();
+                              document.body.removeChild(link);
+                              setTimeout(() => {}, 200);
+                            });
+                          }}
+                        >
+                          Tải tất cả
+                        </Button>
+                      )}
+                    </div>
                     <List
                       size="small"
                       dataSource={previousHomework.attachments}
-                      renderItem={(item: any) => (
-                        <List.Item>
-                          <a href={item.url} target="_blank" rel="noopener noreferrer">
-                            <PaperClipOutlined /> {item.name}
-                          </a>
-                        </List.Item>
-                      )}
+                      renderItem={(item: any) => {
+                        const getShortFileName = (fileName: string) => {
+                          const parts = fileName.split('/');
+                          let name = parts[parts.length - 1];
+                          if (name.length > 30) {
+                            const ext = name.substring(name.lastIndexOf('.'));
+                            const nameWithoutExt = name.substring(0, name.lastIndexOf('.'));
+                            return nameWithoutExt.substring(0, 25) + '...' + ext;
+                          }
+                          return name;
+                        };
+                        const shortName = getShortFileName(item.name);
+                        
+                        return (
+                          <List.Item>
+                            <a href={item.url} target="_blank" rel="noopener noreferrer" title={item.name} download={item.name}>
+                              <PaperClipOutlined /> {shortName}
+                            </a>
+                          </List.Item>
+                        );
+                      }}
                     />
                   </div>
                 )}
               </Card>
             )}
 
-            <Card title="Bài tập về nhà" style={{ marginBottom: 16 }}>
-              <Form layout="vertical">
-                <Form.Item label="Mô tả bài tập">
-                  <Input.TextArea
-                    rows={3}
-                    placeholder="Nhập mô tả bài tập..."
-                    value={homeworkDescription}
-                    onChange={(e) => setHomeworkDescription(e.target.value)}
-                    disabled={isReadOnly}
-                  />
-                </Form.Item>
-                <Form.Item label="Tổng số bài tập">
-                  <InputNumber
-                    min={0}
-                    placeholder="Số lượng bài tập"
-                    value={totalExercises}
-                    onChange={(value) => setTotalExercises(value || 0)}
-                    style={{ width: 200 }}
-                    disabled={isReadOnly}
-                  />
-                </Form.Item>
-                
-                {/* Bug 8: Upload tài liệu đính kèm */}
-                <Form.Item label="Tài liệu đính kèm">
-                  <Space direction="vertical" style={{ width: "100%" }}>
-                    <Upload
-                      beforeUpload={(file) => {
-                        handleUploadAttachment(file);
-                        return false; // Prevent default upload
-                      }}
-                      showUploadList={false}
-                      disabled={isReadOnly || uploadingAttachment}
-                    >
-                      <Button 
-                        icon={<UploadOutlined />} 
-                        loading={uploadingAttachment}
+            <Row gutter={16} style={{ marginBottom: 16 }}>
+              <Col xs={24} md={12}>
+                <Card title="Nội dung buổi học" style={{ height: "100%" }}>
+                  <Form layout="vertical">
+                    <Form.Item label="Nội dung đã dạy">
+                      <Input.TextArea
+                        rows={4}
+                        placeholder="Nhập nội dung buổi học (ví dụ: Bài 1 - Phương trình bậc nhất, Bài tập 1-5 trang 20)..."
+                        value={lessonContent}
+                        onChange={(e) => setLessonContent(e.target.value)}
                         disabled={isReadOnly}
-                      >
-                        {uploadingAttachment ? "Đang tải lên..." : "Tải lên tài liệu"}
-                      </Button>
-                    </Upload>
-                    
-                    {homeworkAttachments.length > 0 && (
-                      <List
-                        size="small"
-                        bordered
-                        dataSource={homeworkAttachments}
-                        renderItem={(item, index) => (
-                          <List.Item
-                            actions={!isReadOnly ? [
-                              <Button 
-                                type="link" 
-                                danger 
-                                size="small"
-                                onClick={() => handleRemoveAttachment(index)}
-                              >
-                                Xóa
-                              </Button>
-                            ] : []}
-                          >
-                            <a href={item.url} target="_blank" rel="noopener noreferrer">
-                              <PaperClipOutlined /> {item.name}
-                            </a>
-                          </List.Item>
-                        )}
                       />
-                    )}
-                  </Space>
-                </Form.Item>
-              </Form>
-            </Card>
+                    </Form.Item>
+                    <Form.Item label="Tài liệu nội dung">
+                      <Space direction="vertical" style={{ width: "100%" }}>
+                        <Upload
+                          beforeUpload={(file) => {
+                            handleUploadLessonAttachment(file);
+                            return false; // Prevent default upload
+                          }}
+                          showUploadList={false}
+                          disabled={isReadOnly || uploadingLessonAttachment}
+                        >
+                          <Button 
+                            icon={<UploadOutlined />} 
+                            loading={uploadingLessonAttachment}
+                            disabled={isReadOnly}
+                            block
+                          >
+                            {uploadingLessonAttachment ? "Đang tải lên..." : "Tải lên tài liệu"}
+                          </Button>
+                        </Upload>
+                        
+                        {lessonAttachments.length > 0 && (
+                          <>
+                            {lessonAttachments.length > 1 && (
+                              <Button
+                                type="primary"
+                                icon={<DownloadOutlined />}
+                                block
+                                onClick={() => {
+                                  lessonAttachments.forEach((item) => {
+                                    const link = document.createElement('a');
+                                    link.href = item.url;
+                                    link.download = item.name;
+                                    link.target = '_blank';
+                                    document.body.appendChild(link);
+                                    link.click();
+                                    document.body.removeChild(link);
+                                    setTimeout(() => {}, 200);
+                                  });
+                                }}
+                                style={{ marginBottom: 8 }}
+                              >
+                                Tải tất cả ({lessonAttachments.length} file)
+                              </Button>
+                            )}
+                            <List
+                              size="small"
+                              bordered
+                              dataSource={lessonAttachments}
+                              renderItem={(item, index) => {
+                                const getShortFileName = (fileName: string) => {
+                                  const parts = fileName.split('/');
+                                  let name = parts[parts.length - 1];
+                                  if (name.length > 30) {
+                                    const ext = name.substring(name.lastIndexOf('.'));
+                                    const nameWithoutExt = name.substring(0, name.lastIndexOf('.'));
+                                    return nameWithoutExt.substring(0, 25) + '...' + ext;
+                                  }
+                                  return name;
+                                };
+                                const shortName = getShortFileName(item.name);
+                                
+                                return (
+                                  <List.Item
+                                    actions={!isReadOnly ? [
+                                      <Button 
+                                        type="link" 
+                                        danger 
+                                        size="small"
+                                        onClick={() => handleRemoveLessonAttachment(index)}
+                                      >
+                                        Xóa
+                                      </Button>
+                                    ] : []}
+                                  >
+                                    <Space>
+                                      <a 
+                                        href={item.url} 
+                                        target="_blank" 
+                                        rel="noopener noreferrer"
+                                        download={item.name}
+                                        title={item.name}
+                                      >
+                                        <PaperClipOutlined /> {shortName}
+                                      </a>
+                                      <Button
+                                        type="link"
+                                        size="small"
+                                        icon={<DownloadOutlined />}
+                                        href={item.url}
+                                        download={item.name}
+                                      >
+                                        Tải
+                                      </Button>
+                                    </Space>
+                                  </List.Item>
+                                );
+                              }}
+                            />
+                          </>
+                        )}
+                      </Space>
+                    </Form.Item>
+                  </Form>
+                </Card>
+              </Col>
+              <Col xs={24} md={12}>
+                <Card title="Bài tập về nhà" style={{ height: "100%" }}>
+                  <Form layout="vertical">
+                    <Form.Item label="Mô tả bài tập">
+                      <Input.TextArea
+                        rows={3}
+                        placeholder="Nhập mô tả bài tập..."
+                        value={homeworkDescription}
+                        onChange={(e) => setHomeworkDescription(e.target.value)}
+                        disabled={isReadOnly}
+                      />
+                    </Form.Item>
+                    <Form.Item label="Tổng số bài tập">
+                      <InputNumber
+                        min={0}
+                        placeholder="Số lượng bài tập"
+                        value={totalExercises}
+                        onChange={(value) => setTotalExercises(value || 0)}
+                        style={{ width: "100%" }}
+                        disabled={isReadOnly}
+                      />
+                    </Form.Item>
+                    <Form.Item label="Tài liệu BTVN">
+                      <Space direction="vertical" style={{ width: "100%" }}>
+                        <Upload
+                          beforeUpload={(file) => {
+                            handleUploadAttachment(file);
+                            return false; // Prevent default upload
+                          }}
+                          showUploadList={false}
+                          disabled={isReadOnly || uploadingAttachment}
+                        >
+                          <Button 
+                            icon={<UploadOutlined />} 
+                            loading={uploadingAttachment}
+                            disabled={isReadOnly}
+                            block
+                          >
+                            {uploadingAttachment ? "Đang tải lên..." : "Tải lên tài liệu BTVN"}
+                          </Button>
+                        </Upload>
+                        
+                        {homeworkAttachments.length > 0 && (
+                          <>
+                            {homeworkAttachments.length > 1 && (
+                              <Button
+                                type="primary"
+                                icon={<DownloadOutlined />}
+                                block
+                                onClick={() => {
+                                  homeworkAttachments.forEach((item) => {
+                                    const link = document.createElement('a');
+                                    link.href = item.url;
+                                    link.download = item.name;
+                                    link.target = '_blank';
+                                    document.body.appendChild(link);
+                                    link.click();
+                                    document.body.removeChild(link);
+                                    // Delay để tránh browser block multiple downloads
+                                    setTimeout(() => {}, 200);
+                                  });
+                                }}
+                                style={{ marginBottom: 8 }}
+                              >
+                                Tải tất cả ({homeworkAttachments.length} file)
+                              </Button>
+                            )}
+                            <List
+                              size="small"
+                              bordered
+                              dataSource={homeworkAttachments}
+                              renderItem={(item, index) => {
+                                // Rút gọn tên file: chỉ lấy tên file, bỏ đường dẫn dài
+                                const getShortFileName = (fileName: string) => {
+                                  // Nếu có đường dẫn, chỉ lấy tên file
+                                  const parts = fileName.split('/');
+                                  let name = parts[parts.length - 1];
+                                  // Nếu tên file quá dài (>30 ký tự), rút gọn
+                                  if (name.length > 30) {
+                                    const ext = name.substring(name.lastIndexOf('.'));
+                                    const nameWithoutExt = name.substring(0, name.lastIndexOf('.'));
+                                    return nameWithoutExt.substring(0, 25) + '...' + ext;
+                                  }
+                                  return name;
+                                };
+                                const shortName = getShortFileName(item.name);
+                                
+                                return (
+                                  <List.Item
+                                    actions={!isReadOnly ? [
+                                      <Button 
+                                        type="link" 
+                                        danger 
+                                        size="small"
+                                        onClick={() => handleRemoveAttachment(index)}
+                                      >
+                                        Xóa
+                                      </Button>
+                                    ] : []}
+                                  >
+                                    <Space>
+                                      <a 
+                                        href={item.url} 
+                                        target="_blank" 
+                                        rel="noopener noreferrer"
+                                        download={item.name}
+                                        title={item.name}
+                                      >
+                                        <PaperClipOutlined /> {shortName}
+                                      </a>
+                                      <Button
+                                        type="link"
+                                        size="small"
+                                        icon={<DownloadOutlined />}
+                                        href={item.url}
+                                        download={item.name}
+                                      >
+                                        Tải
+                                      </Button>
+                                    </Space>
+                                  </List.Item>
+                                );
+                              }}
+                            />
+                          </>
+                        )}
+                      </Space>
+                    </Form.Item>
+                  </Form>
+                </Card>
+              </Col>
+            </Row>
 
             <Card 
               title="Bài kiểm tra chung" 

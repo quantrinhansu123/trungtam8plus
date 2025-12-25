@@ -663,17 +663,26 @@ const StudentListView: React.FC = () => {
             // If selected classes provided, add this student to those classes
             if (selectedClassIds && selectedClassIds.length > 0) {
               try {
+                const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
                 for (const classId of selectedClassIds) {
                   const cls = classes.find((c) => c.id === classId);
                   if (!cls) continue;
                   const currentIds = Array.isArray(cls["Student IDs"]) ? cls["Student IDs"] : [];
                   if (!currentIds.includes(newStudent.id)) {
                     const updatedIds = [...currentIds, newStudent.id];
+                    const currentEnrollments = cls["Student Enrollments"] || {};
+                    const updatedEnrollments = { 
+                      ...currentEnrollments,
+                      [newStudent.id]: { enrollmentDate: today }
+                    };
                     const url = `${DATABASE_URL_BASE}/datasheet/Lớp_học/${classId}.json`;
                     await fetch(url, {
                       method: "PATCH",
                       headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ "Student IDs": updatedIds }),
+                      body: JSON.stringify({ 
+                        "Student IDs": updatedIds,
+                        "Student Enrollments": updatedEnrollments
+                      }),
                     });
                   }
                 }
@@ -2709,7 +2718,22 @@ const StudentListView: React.FC = () => {
                           if (!hasAttendance) return false;
                           if (!session["Ngày"]) return false;
                           const sessionDate = new Date(session["Ngày"]);
-                          return sessionDate >= fromDate && sessionDate <= toDate;
+                          if (sessionDate < fromDate || sessionDate > toDate) return false;
+                          
+                          // Check enrollment date - chỉ hiển thị sessions sau ngày đăng ký
+                          const classId = session["Class ID"];
+                          const classData = classes.find(c => c.id === classId);
+                          if (classData) {
+                            const enrollments = classData["Student Enrollments"] || {};
+                            if (enrollments[selectedStudent.id]) {
+                              const enrollmentDate = enrollments[selectedStudent.id].enrollmentDate;
+                              const sessionDateStr = session["Ngày"];
+                              // Chỉ hiển thị nếu học sinh đã đăng ký trước hoặc trong ngày session
+                              if (enrollmentDate > sessionDateStr) return false;
+                            }
+                          }
+                          
+                          return true;
                         })
                         .sort((a, b) => {
                           const dateA = new Date(a["Ngày"]);
@@ -3403,25 +3427,6 @@ const StudentListView: React.FC = () => {
 
 
         </TabPane>
-
-        {/* Tab 2: Danh sách học phí - Chỉ hiển thị cho Admin */}
-        {userProfile?.isAdmin && (
-          <TabPane
-            tab={
-              <span>
-                <DollarOutlined />
-                Danh sách học phí
-              </span>
-            }
-            key="tuition"
-          >
-            <StudentTuitionTab
-              students={displayStudents}
-              extensionHistory={extensionHistory}
-              attendanceSessions={attendanceSessions}
-            />
-          </TabPane>
-        )}
       </Tabs>
     </WrapperContent>
   );

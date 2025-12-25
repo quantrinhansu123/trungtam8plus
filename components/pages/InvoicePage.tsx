@@ -1727,22 +1727,16 @@ const InvoicePage = () => {
 
   const generateTeacherSalaryHTML = (salary: TeacherSalary) => {
     const teacher = teachers.find((t) => t.id === salary.teacherId);
-    const salaryPerSession = Number(teacher?.["Lương theo buổi"]) || 0;
     const travelAllowancePerSession = Number(teacher?.["Trợ cấp đi lại"]) || 0;
 
-    // Define level schools
-    const levelSchools = [
-      { key: "1,2,3,4,5", value: "TH", label: "Tiểu học" },
-      { key: "6,7,8,9", value: "THCS", label: "Trung học cơ sở" },
-      { key: "10,11,12", value: "THPT", label: "Trung học phổ thông" },
-    ];
-
-    // Group sessions by level school
-    const levelSummary: Record<
+    // Group sessions by class
+    const classSummary: Record<
       string,
       {
-        level: string;
-        levelLabel: string;
+        classId: string;
+        className: string;
+        classCode: string;
+        subject: string;
         sessionCount: number;
         totalSalary: number;
         totalAllowance: number;
@@ -1750,48 +1744,43 @@ const InvoicePage = () => {
     > = {};
 
     salary.sessions.forEach((session) => {
+      const classId = session["Class ID"];
       const className = session["Tên lớp"] || "";
       const classCode = session["Mã lớp"] || "";
-
-      // Find class info using Class ID from session
-      const classId = session["Class ID"];
+      
+      // Find class info to get subject and salary per session
       const classInfo = classes.find((c) => c.id === classId);
-      const gradeNumber = classInfo?.Khối || null;
+      const subject = classInfo?.["Môn học"] || "";
+      
+      // Get salary per session from class (Lương GV) or calculate from session
+      const classSalaryPerSession = classInfo?.["Lương GV"] || 0;
+      
+      // Use class-specific salary if available, otherwise use teacher's default
+      const salaryPerSession = classSalaryPerSession > 0 
+        ? classSalaryPerSession 
+        : (Number(teacher?.["Lương theo buổi"]) || 0);
 
-      // Find which level this grade belongs to
-      let level = levelSchools.find((l) => {
-        if (!gradeNumber) return false;
-        const grades = l.key.split(",").map((g) => parseInt(g));
-        return grades.includes(gradeNumber);
-      });
-
-      // If no grade found or no level matched, default to TH (Tiểu học)
-      if (!level) {
-        console.log("⚠️ Session without valid grade, defaulting to TH:", {
+      if (!classSummary[classId]) {
+        classSummary[classId] = {
+          classId,
           className,
           classCode,
-          gradeNumber,
-          classId,
-        });
-        level = levelSchools[0]; // Default to TH
-      }
-
-      if (!levelSummary[level.value]) {
-        levelSummary[level.value] = {
-          level: level.value,
-          levelLabel: level.label,
+          subject,
           sessionCount: 0,
           totalSalary: 0,
           totalAllowance: 0,
         };
       }
 
-      levelSummary[level.value].sessionCount++;
-      levelSummary[level.value].totalSalary += salaryPerSession;
-      levelSummary[level.value].totalAllowance += travelAllowancePerSession;
+      classSummary[classId].sessionCount++;
+      classSummary[classId].totalSalary += salaryPerSession;
+      classSummary[classId].totalAllowance += travelAllowancePerSession;
     });
 
-    const levelData = Object.values(levelSummary);
+    const classData = Object.values(classSummary).sort((a, b) => 
+      a.className.localeCompare(b.className)
+    );
+    
     // Use the pre-calculated values from salary object for accuracy
     const grandTotal = salary.totalSalary + salary.totalAllowance;
 
@@ -1842,36 +1831,31 @@ const InvoicePage = () => {
               <table style="width: 100%; border-collapse: collapse; margin: 18px 0;">
                 <thead>
                   <tr style="background: #fff;">
-                    <th style="border: 1px solid #000; padding: 10px; text-align: left;">Khối</th>
-                    <th style="border: 1px solid #000; padding: 10px; text-align: center;">Ca dạy</th>
-                    <th style="border: 1px solid #000; padding: 10px; text-align: right;">Lương</th>
-                    <th style="border: 1px solid #000; padding: 10px; text-align: right;">Phụ cấp</th>
+                    <th style="border: 1px solid #000; padding: 10px; text-align: left;">Lớp học</th>
+                    <th style="border: 1px solid #000; padding: 10px; text-align: center;">Số buổi</th>
+                    <th style="border: 1px solid #000; padding: 10px; text-align: right;">Tổng lương</th>
                   </tr>
                 </thead>
                 <tbody>
-                  ${levelData
+                  ${classData
                     .map(
-                      (level) => `
+                      (classItem) => `
                     <tr>
-                      <td style="border: 1px solid #000; padding: 10px;"><strong>${level.level}</strong></td>
-                      <td style="border: 1px solid #000; padding: 10px; text-align: center;">${level.sessionCount}</td>
-                      <td style="border: 1px solid #000; padding: 10px; text-align: right;">${level.totalSalary.toLocaleString("vi-VN")}</td>
-                      <td style="border: 1px solid #000; padding: 10px; text-align: right;">${(level.totalAllowance || 0).toLocaleString("vi-VN")}</td>
+                      <td style="border: 1px solid #000; padding: 10px;">
+                        <strong>${classItem.className}</strong>
+                        ${classItem.classCode ? ` (${classItem.classCode})` : ''}
+                        ${classItem.subject ? `<br/><span style="font-size: 12px; color: #666;">${subjectMap[classItem.subject] || classItem.subject}</span>` : ''}
+                      </td>
+                      <td style="border: 1px solid #000; padding: 10px; text-align: center;">${classItem.sessionCount}</td>
+                      <td style="border: 1px solid #000; padding: 10px; text-align: right;">${(classItem.totalSalary + classItem.totalAllowance).toLocaleString("vi-VN")}</td>
                     </tr>
                   `
                     )
                     .join("")}
-                  <tr style="background: #f9f9f9;">
-                    <td colspan="2" style="border: 1px solid #000; padding: 12px; text-align: left;"><strong>Tổng lương cơ bản</strong></td>
-                    <td colspan="2" style="border: 1px solid #000; padding: 12px; text-align: right;"><strong>${salary.totalSalary.toLocaleString("vi-VN")}</strong></td>
-                  </tr>
-                  <tr style="background: #f9f9f9;">
-                    <td colspan="2" style="border: 1px solid #000; padding: 12px; text-align: left;"><strong>Tổng phụ cấp</strong></td>
-                    <td colspan="2" style="border: 1px solid #000; padding: 12px; text-align: right;"><strong>${salary.totalAllowance.toLocaleString("vi-VN")}</strong></td>
-                  </tr>
                   <tr style="background: #e8f5e9; font-weight: bold;">
-                    <td colspan="2" style="border: 1px solid #000; padding: 12px; text-align: left; font-size: 16px;">TỔNG LƯƠNG</td>
-                    <td colspan="2" style="border: 1px solid #000; padding: 12px; text-align: right; font-size: 16px;">${grandTotal.toLocaleString("vi-VN")}</td>
+                    <td style="border: 1px solid #000; padding: 12px; text-align: left; font-size: 16px;">TỔNG LƯƠNG</td>
+                    <td style="border: 1px solid #000; padding: 12px; text-align: center; font-size: 16px;">${salary.totalSessions || salary.sessions?.length || 0}</td>
+                    <td style="border: 1px solid #000; padding: 12px; text-align: right; font-size: 16px;">${grandTotal.toLocaleString("vi-VN")}</td>
                   </tr>
                 </tbody>
               </table>
@@ -2281,6 +2265,20 @@ const InvoicePage = () => {
         ),
       },
       {
+        title: "Nợ học phí",
+        key: "debt",
+        width: 130,
+        render: (_: any, record: GroupedStudentInvoice) => {
+          // Nợ = Thành tiền (chưa thanh toán)
+          const debt = record.status === "unpaid" ? record.finalAmount : 0;
+          return (
+            <Text strong style={{ color: debt > 0 ? "#ff4d4f" : "#52c41a", fontSize: "14px" }}>
+              {debt.toLocaleString("vi-VN")} đ
+            </Text>
+          );
+        },
+      },
+      {
         title: "Thao tác",
         key: "actions",
         width: 250,
@@ -2442,6 +2440,20 @@ const InvoicePage = () => {
             {status === "paid" ? "Đã thu" : "Chưa thu"}
           </Tag>
         ),
+      },
+      {
+        title: "Nợ học phí",
+        key: "debt",
+        width: 130,
+        render: (_: any, record: StudentInvoice) => {
+          // Nợ = 0 nếu đã thanh toán, = finalAmount nếu chưa thanh toán
+          const debt = record.status === "unpaid" ? record.finalAmount : 0;
+          return (
+            <Text strong style={{ color: debt > 0 ? "#ff4d4f" : "#52c41a", fontSize: "14px" }}>
+              {debt.toLocaleString("vi-VN")} đ
+            </Text>
+          );
+        },
       },
       {
         title: "Thao tác",

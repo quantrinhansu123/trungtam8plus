@@ -1850,35 +1850,12 @@ const TeacherListView: React.FC = () => {
                   teacher["Email"] || teacher["Email công ty"] || "-",
               },
               {
-                title: "Buổi dạy",
-                key: "sessions",
-                width: 100,
-                align: "center" as const,
-                render: (_: any, teacher: any) => (
-                  <Tag color={teacher.totalSessions > 0 ? "green" : "red"} style={{ fontWeight: "bold" }}>
-                    {teacher.totalSessions} Buổi
-                  </Tag>
-                ),
-              },
-              {
-                title: "Lương/buổi",
-                key: "salaryPerSession",
-                align: "center" as const,
-                render: (_: any, teacher: any) => (
-                  <Text style={{ color: "#1890ff" }}>
-                    {teacher.salaryPerSession
-                      ? teacher.salaryPerSession.toLocaleString("vi-VN")
-                      : "0"}{" "}
-                    đ
-                  </Text>
-                ),
-              },
-              {
                 title: "Tổng lương",
                 key: "totalSalary",
+                width: 150,
                 align: "center" as const,
                 render: (_: any, teacher: any) => (
-                  <Text strong style={{ color: "#52c41a" }}>
+                  <Text strong style={{ color: "#52c41a", fontSize: 16 }}>
                     {teacher.totalSalary
                       ? teacher.totalSalary.toLocaleString("vi-VN")
                       : "0"}{" "}

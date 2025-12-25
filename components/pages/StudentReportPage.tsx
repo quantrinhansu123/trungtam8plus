@@ -60,6 +60,7 @@ const StudentReportPage = () => {
 
   const [student, setStudent] = useState<Student | null>(null);
   const [sessions, setSessions] = useState<AttendanceSession[]>([]);
+  const [classes, setClasses] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   
   // Filters
@@ -91,6 +92,25 @@ const StudentReportPage = () => {
     return () => unsubscribe();
   }, [studentId]);
 
+  // Load classes
+  useEffect(() => {
+    const classesRef = ref(database, "datasheet/Lớp_học");
+    const unsubscribe = onValue(classesRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        const classesList = Object.entries(data).map(([id, value]) => ({
+          id,
+          ...(value as any),
+        }));
+        setClasses(classesList);
+      } else {
+        setClasses([]);
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
   // Load sessions
   useEffect(() => {
     const sessionsRef = ref(database, "datasheet/Điểm_danh_sessions");
@@ -121,13 +141,30 @@ const StudentReportPage = () => {
 
   const stats = getStudentStats(student.id);
 
-  // Filter sessions for this student
+  // Filter sessions for this student - chỉ hiển thị sessions sau ngày đăng ký
   const studentSessions = sessions
-    .filter((session) =>
-      session["Điểm danh"]?.some(
+    .filter((session) => {
+      // Check if student has attendance record
+      const hasRecord = session["Điểm danh"]?.some(
         (record) => record["Student ID"] === student.id
-      )
-    )
+      );
+      if (!hasRecord) return false;
+      
+      // Check enrollment date if class data available
+      const classId = session["Class ID"];
+      const classData = classes.find(c => c.id === classId);
+      if (classData) {
+        const enrollments = classData["Student Enrollments"] || {};
+        if (enrollments[student.id]) {
+          const enrollmentDate = enrollments[student.id].enrollmentDate;
+          const sessionDate = session["Ngày"];
+          // Chỉ hiển thị nếu học sinh đã đăng ký trước hoặc trong ngày session
+          if (enrollmentDate > sessionDate) return false;
+        }
+      }
+      
+      return true;
+    })
     .sort(
       (a, b) => new Date(b["Ngày"]).getTime() - new Date(a["Ngày"]).getTime()
     );

@@ -47,6 +47,7 @@ export interface Class {
     "Teacher ID": string; // Teacher ID
     "Học sinh": string[]; // Student names
     "Student IDs": string[]; // Student IDs
+    "Student Enrollments"?: { [studentId: string]: { enrollmentDate: string } }; // Track when each student joined
     "Lịch học": ClassSchedule[]; // Weekly schedule
     "Ngày bắt đầu"?: string; // Start date (optional - for future use)
     "Ngày kết thúc"?: string; // End date (optional - for future use)

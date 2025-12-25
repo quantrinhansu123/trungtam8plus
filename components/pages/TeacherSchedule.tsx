@@ -413,26 +413,153 @@ const TeacherSchedule = () => {
   // Refs để scroll đến các cột ngày
   const dayRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   
-  // Helper to abbreviate class name
-  const abbreviateClassName = (className: string): string => {
-    if (!className) return "";
+  // Helper to get subject abbreviation (1 chữ): Vật lý -> Lý, Toán -> Toán, Tiếng Anh -> Anh
+  const getSubjectAbbreviation = (subjectName: string): string => {
+    if (!subjectName) return "";
+    
+    // Map tên môn đầy đủ sang 1 chữ
     const subjectMap: Record<string, string> = {
-      "Toán": "T", "Lý": "L", "Hóa": "H", "Văn": "V", "Anh": "A",
-      "Sinh": "S", "Sử": "Sử", "Địa": "Đ", "GDCD": "GD", "Tin": "Tin",
-      "Thể dục": "TD", "Mỹ thuật": "MT", "Âm nhạc": "AN",
+      "Toán": "Toán",
+      "Vật lý": "Lý",
+      "Lý": "Lý",
+      "Tiếng Anh": "Anh",
+      "Anh": "Anh",
+      "T.Anh": "Anh",
+      "Hóa học": "Hóa",
+      "Hóa": "Hóa",
+      "Ngữ văn": "Văn",
+      "Văn": "Văn",
+      "Sinh học": "Sinh",
+      "Sinh": "Sinh",
+      "Lịch sử": "Sử",
+      "Sử": "Sử",
+      "Địa lý": "Địa",
+      "Địa": "Địa",
+      "GDCD": "GDCD",
+      "Tin học": "Tin",
+      "Tin": "Tin",
+      "Thể dục": "TD",
+      "Mỹ thuật": "MT",
+      "Âm nhạc": "AN",
     };
-    const numberMatch = className.match(/\d+/);
-    const number = numberMatch ? numberMatch[0] : "";
-    for (const [subject, abbrev] of Object.entries(subjectMap)) {
-      if (className.includes(subject)) {
-        return `${abbrev}${number}`;
+    
+    // Tìm trong map - ưu tiên match chính xác trước
+    if (subjectMap[subjectName]) {
+      return subjectMap[subjectName];
+    }
+    
+    // Sau đó tìm partial match
+    for (const [full, abbrev] of Object.entries(subjectMap)) {
+      if (subjectName.includes(full)) {
+        return abbrev;
       }
     }
-    const words = className.split(/\s+/);
-    if (words.length > 0 && number) {
-      return `${words[0].charAt(0).toUpperCase()}${number}`;
+    
+    // Nếu không tìm thấy, trả về chữ đầu tiên
+    return subjectName.charAt(0).toUpperCase();
+  };
+
+  // Helper to format class name with full Vietnamese name: T5 -> Toán 5, L5 -> Lý 5
+  const formatShortClassName = (className: string, subjectName?: string): string => {
+    if (!className) return "";
+    
+    // Lấy số từ tên lớp (ví dụ: "Toán 5" -> "5")
+    const numberMatch = className.match(/\d+/);
+    const number = numberMatch ? numberMatch[0] : "";
+    
+    // Nếu có subjectName, dùng nó để lấy tên môn đầy đủ
+    if (subjectName) {
+      // Convert từ key tiếng Anh sang tiếng Việt nếu cần (ví dụ: "Literature" -> "Ngữ văn")
+      const vietnameseSubject = subjectMap[subjectName] || subjectName;
+      const subjectAbbrev = getSubjectAbbreviation(vietnameseSubject);
+      return number ? `${subjectAbbrev} ${number}` : subjectAbbrev;
     }
-    return className.substring(0, 3).toUpperCase();
+    
+    // Nếu không có subjectName, tìm từ className
+    // Map viết tắt sang tên đầy đủ tiếng Việt
+    const abbrevToFull: Record<string, string> = {
+      "T": "Toán",
+      "Toán": "Toán",
+      "TA": "Anh",
+      "A": "Anh",
+      "Anh": "Anh",
+      "L": "Lý",
+      "Lý": "Lý",
+      "H": "Hóa",
+      "Hóa": "Hóa",
+      "V": "Văn",
+      "Văn": "Văn",
+      "S": "Sinh",
+      "Sinh": "Sinh",
+      "Đ": "Địa",
+      "Địa": "Địa",
+      "GD": "GDCD",
+      "TD": "Thể dục",
+      "MT": "Mỹ thuật",
+      "AN": "Âm nhạc",
+      "Tin": "Tin",
+    };
+    
+    // Loại bỏ số và khoảng trắng để tìm viết tắt
+    const abbrev = className.replace(/\d+/g, "").trim();
+    
+    // Tìm trong map
+    for (const [key, value] of Object.entries(abbrevToFull)) {
+      if (abbrev.includes(key) || className.includes(key)) {
+        return number ? `${value} ${number}` : value;
+      }
+    }
+    
+    // Nếu không tìm thấy, trả về tên gốc
+    return className;
+  };
+
+  // Helper to format full class name (T5 -> Toán 5, TA 5 -> T.Anh 5, etc.)
+  const formatFullClassName = (className: string): string => {
+    if (!className) return "";
+    
+    // Nếu tên lớp đã đầy đủ (chứa "Toán", "Anh", v.v.), trả về nguyên nhưng chuyển "T.Anh" thành "Anh"
+    if (className.includes("Toán") || className.includes("T.Anh") || 
+        className.includes("Lý") || className.includes("Hóa") || 
+        className.includes("Văn") || className.includes("Anh") ||
+        className.includes("Sinh") || className.includes("Sử") ||
+        className.includes("Địa") || className.includes("GDCD") ||
+        className.includes("Tin") || className.includes("Thể dục") ||
+        className.includes("Mỹ thuật") || className.includes("Âm nhạc")) {
+      // Chuyển "T.Anh" thành "Anh"
+      return className.replace(/T\.Anh/g, "Anh");
+    }
+    
+    // Map viết tắt sang tên đầy đủ
+    const abbrevToFull: Record<string, string> = {
+      "T": "Toán",
+      "TA": "Anh",
+      "A": "Anh",
+      "L": "Lý",
+      "H": "Hóa",
+      "V": "Văn",
+      "S": "Sinh",
+      "Đ": "Địa",
+      "GD": "GDCD",
+      "TD": "Thể dục",
+      "MT": "Mỹ thuật",
+      "AN": "Âm nhạc",
+    };
+    
+    // Tìm số trong tên lớp (ví dụ: "T5" -> "5")
+    const numberMatch = className.match(/\d+/);
+    const number = numberMatch ? numberMatch[0] : "";
+    
+    // Loại bỏ số và khoảng trắng để tìm viết tắt
+    const abbrev = className.replace(/\d+/g, "").trim();
+    
+    // Tìm môn học từ viết tắt
+    if (abbrevToFull[abbrev] && number) {
+      return `${abbrevToFull[abbrev]} ${number}`;
+    }
+    
+    // Nếu không tìm thấy, trả về tên gốc
+    return className;
   };
 
   // Helper to abbreviate room name
@@ -1336,7 +1463,7 @@ const TeacherSchedule = () => {
                                     fontSize: height < 70 ? "12px" : "13px", 
                                     whiteSpace: "nowrap",
                                   }}>
-                                    {abbreviateClassName(event.class["Tên lớp"])}
+                                    {formatShortClassName(event.class["Tên lớp"], event.class["Môn học"])}
                                   </div>
                                   {event.class["Giáo viên chủ nhiệm"] && (
                                     <div style={{ 

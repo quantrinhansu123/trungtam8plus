@@ -426,6 +426,7 @@ const TeacherClassView = () => {
                             href={doc.url}
                             target="_blank"
                             rel="noopener noreferrer"
+                            download={doc.type === "file" ? doc.fileName || doc.name : undefined}
                           >
                             {doc.type === "file" ? "Tải xuống" : "Mở"}
                           </Button>,

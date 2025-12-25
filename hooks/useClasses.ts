@@ -78,10 +78,16 @@ export const useClasses = () => {
 
             const updatedStudentIds = [...(classData['Student IDs'] || []), studentId];
             const updatedStudentNames = [...(classData['Học sinh'] || []), studentName];
+            
+            // Track enrollment date
+            const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+            const updatedEnrollments = { ...(classData['Student Enrollments'] || {}) };
+            updatedEnrollments[studentId] = { enrollmentDate: today };
 
             await updateClass(classId, {
                 'Student IDs': updatedStudentIds,
-                'Học sinh': updatedStudentNames
+                'Học sinh': updatedStudentNames,
+                'Student Enrollments': updatedEnrollments
             });
         } catch (error) {
             console.error('Error adding student to class:', error);
@@ -101,6 +107,7 @@ export const useClasses = () => {
             // Get current students
             const currentStudentIds = classData['Student IDs'] || [];
             const currentStudentNames = classData['Học sinh'] || [];
+            const currentEnrollments = classData['Student Enrollments'] || {};
 
             // Filter out students that are already in the class
             const newStudents = students.filter(s => !currentStudentIds.includes(s.id));
@@ -113,10 +120,18 @@ export const useClasses = () => {
             // Add new students
             const updatedStudentIds = [...currentStudentIds, ...newStudents.map(s => s.id)];
             const updatedStudentNames = [...currentStudentNames, ...newStudents.map(s => s.name)];
+            
+            // Track enrollment date for new students
+            const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+            const updatedEnrollments = { ...currentEnrollments };
+            newStudents.forEach(s => {
+                updatedEnrollments[s.id] = { enrollmentDate: today };
+            });
 
             await updateClass(classId, {
                 'Student IDs': updatedStudentIds,
-                'Học sinh': updatedStudentNames
+                'Học sinh': updatedStudentNames,
+                'Student Enrollments': updatedEnrollments
             });
 
             message.success(`Đã thêm ${newStudents.length} học sinh vào lớp`);

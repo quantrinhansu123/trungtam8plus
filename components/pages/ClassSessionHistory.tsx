@@ -97,6 +97,24 @@ const ClassSessionHistory = () => {
     return () => unsubscribe();
   }, [classId, classData]);
 
+  // Helper function to filter attendance records by enrollment date
+  const filterAttendanceByEnrollment = (session: AttendanceSession): AttendanceRecord[] => {
+    if (!classData || !session["Điểm danh"]) return session["Điểm danh"] || [];
+    
+    const enrollments = classData["Student Enrollments"] || {};
+    const sessionDate = session["Ngày"];
+    
+    return session["Điểm danh"].filter((record: AttendanceRecord) => {
+      const studentId = record["Student ID"];
+      // Nếu không có enrollment date (backward compatibility), hiển thị học sinh
+      if (!enrollments[studentId]) return true;
+      
+      // Chỉ hiển thị nếu học sinh đã đăng ký trước hoặc trong ngày session
+      const enrollmentDate = enrollments[studentId].enrollmentDate;
+      return enrollmentDate <= sessionDate;
+    });
+  };
+
   const handleView = (session: AttendanceSession) => {
     setSelectedSession(session);
     setIsViewModalOpen(true);
@@ -104,13 +122,15 @@ const ClassSessionHistory = () => {
 
   const handleEdit = (session: AttendanceSession) => {
     setSelectedSession(session);
-    setEditingRecords(session["Điểm danh"] || []);
+    // Filter attendance records theo enrollment date
+    const filteredRecords = filterAttendanceByEnrollment(session);
+    setEditingRecords(filteredRecords);
     setEditingHomework({
       description: session["Bài tập"]?.["Mô tả"] || "",
       total: session["Bài tập"]?.["Tổng số bài"] || 0,
     });
     // Get common test name from first record (if exists)
-    const firstTestName = session["Điểm danh"]?.[0]?.["Bài kiểm tra"] || "";
+    const firstTestName = filteredRecords[0]?.["Bài kiểm tra"] || "";
     setCommonTestName(firstTestName);
     setIsEditModalOpen(true);
   };
@@ -284,9 +304,9 @@ const ClassSessionHistory = () => {
       title: "Có mặt",
       key: "present",
       render: (_: any, record: AttendanceSession) => {
-        const presentCount =
-          record["Điểm danh"]?.filter((r) => r["Có mặt"]).length || 0;
-        const total = record["Điểm danh"]?.length || 0;
+        const filteredRecords = filterAttendanceByEnrollment(record);
+        const presentCount = filteredRecords.filter((r) => r["Có mặt"]).length;
+        const total = filteredRecords.length;
         return (
           <Tag color="green">
             {presentCount}/{total}
@@ -601,10 +621,11 @@ const ClassSessionHistory = () => {
       (a, b) => new Date(a["Ngày"]).getTime() - new Date(b["Ngày"]).getTime()
     );
 
-    // Get all unique students
+    // Get all unique students (only from filtered records)
     const studentsMap = new Map<string, string>();
     sortedSessions.forEach((session) => {
-      session["Điểm danh"]?.forEach((record) => {
+      const filteredRecords = filterAttendanceByEnrollment(session);
+      filteredRecords.forEach((record) => {
         if (!studentsMap.has(record["Student ID"])) {
           studentsMap.set(record["Student ID"], record["Tên học sinh"]);
         }
@@ -618,7 +639,8 @@ const ClassSessionHistory = () => {
 
     // Add data rows for each session
     sortedSessions.forEach((session) => {
-      session["Điểm danh"]?.forEach((record) => {
+      const filteredRecords = filterAttendanceByEnrollment(session);
+      filteredRecords.forEach((record) => {
         const date = dayjs(session["Ngày"]).format("DD/MM/YYYY");
         const studentName = record["Tên học sinh"];
         const attendance = record["Có mặt"]
@@ -677,7 +699,8 @@ const ClassSessionHistory = () => {
 
     let tableRows = "";
     sortedSessions.forEach((session) => {
-      session["Điểm danh"]?.forEach((record) => {
+      const filteredRecords = filterAttendanceByEnrollment(session);
+      filteredRecords.forEach((record) => {
         const date = dayjs(session["Ngày"]).format("DD/MM/YYYY");
         const studentName = record["Tên học sinh"];
         const attendance = record["Có mặt"]
@@ -917,7 +940,7 @@ const ClassSessionHistory = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {selectedSession["Điểm danh"]?.map((record, index) => {
+                  {filterAttendanceByEnrollment(selectedSession).map((record, index) => {
                     const attendance = record["Có mặt"]
                       ? record["Đi muộn"]
                         ? "Đi muộn"
