@@ -160,7 +160,7 @@ const InvoicePage = () => {
   const [studentYear, setStudentYear] = useState(dayjs().year());
   const [studentStatusFilter, setStudentStatusFilter] = useState<
     "all" | "paid" | "unpaid"
-  >("all");
+  >("unpaid");
   const [studentClassFilter, setStudentClassFilter] = useState<string[]>([]); // Nhiều lớp
   const [studentTeacherFilter, setStudentTeacherFilter] = useState<string>("all"); // Lọc theo giáo viên
 
@@ -175,6 +175,9 @@ const InvoicePage = () => {
 
   // State for QR preference in invoice modal
   const [includeQRInInvoice, setIncludeQRInInvoice] = useState(true);
+
+  // Track active tab to auto-apply status filters
+  const [activeTab, setActiveTab] = useState<string>("students");
 
   // State for QR preference per invoice (for table)
   const [invoiceQRPreferences, setInvoiceQRPreferences] = useState<Record<string, boolean>>({});
@@ -670,7 +673,7 @@ const InvoicePage = () => {
     })).sort((a, b) => a.name.localeCompare(b.name));
   }, [teachers]);
 
-  // Filter student invoices with all filters
+  // Filter student invoices with all filters (tab "Chưa thanh toán")
   const filteredStudentInvoices = useMemo(() => {
     if (!studentInvoices || !Array.isArray(studentInvoices)) {
       return [];
@@ -700,9 +703,8 @@ const InvoicePage = () => {
 
         // Filter by status
         const matchStatus =
-          studentStatusFilter === "all" ||
-          (studentStatusFilter === "paid" && invoice.status === "paid") ||
-          (studentStatusFilter === "unpaid" && invoice.status !== "paid");
+          invoice.status !== "paid" &&
+          studentStatusFilter !== "paid";
 
         // Filter by class - check if invoice has sessions in selected classes
         const matchClass =
@@ -4225,7 +4227,18 @@ const InvoicePage = () => {
   return (
     <WrapperContent title="Hóa đơn & Biên nhận">
       <Tabs
+        activeKey={activeTab}
         defaultActiveKey="students"
+        onChange={(key) => {
+          setActiveTab(key);
+          if (key === "students") {
+            setStudentStatusFilter("unpaid");
+            setSelectedRowKeys([]);
+          } else if (key === "paid") {
+            setStudentStatusFilter("paid");
+            setSelectedPaidRowKeys([]);
+          }
+        }}
         items={[
           {
             key: "students",
