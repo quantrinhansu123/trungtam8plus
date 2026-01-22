@@ -23,6 +23,7 @@ import {
   Calendar,
   Modal,
   DatePicker,
+  Collapse,
 } from "antd";
 import type { Dayjs } from "dayjs";
 import {
@@ -963,278 +964,330 @@ const ParentPortal: React.FC = () => {
                     {classes.length === 0 ? (
                       <Empty description="Chưa có lớp học nào" />
                     ) : (
-                      <Row gutter={[16, 16]}>
-                        {classes.map((cls) => (
-                          <Col xs={24} md={12} key={cls.id}>
-                            <Card
-                              title={cls["Tên lớp"]}
-                              extra={
-                                <Tag color={cls["Trạng thái"] === "active" ? "green" : "red"}>
-                                  {cls["Trạng thái"] === "active" ? "Đang học" : "Đã kết thúc"}
-                                </Tag>
-                              }
-                            >
-                              <Descriptions column={1} size="small">
-                                <Descriptions.Item label="Môn học">
-                                  {subjectMap[cls["Môn học"]] || cls["Môn học"]}
-                                </Descriptions.Item>
-                                <Descriptions.Item label="Khối">{cls["Khối"]}</Descriptions.Item>
-                                <Descriptions.Item label="Giáo viên">
-                                  {cls["Giáo viên chủ nhiệm"]}
-                                </Descriptions.Item>
-                                <Descriptions.Item label="Mã lớp">
-                                  {cls["Mã lớp"]}
-                                </Descriptions.Item>
-                              </Descriptions>
-                              <div style={{ marginTop: 12 }}>
-                                <Text strong>Lịch học:</Text>
-                                {cls["Lịch học"]?.map((schedule: any, idx: number) => (
-                                  <div key={idx} style={{ marginLeft: 16, marginTop: 4 }}>
-                                    <ClockCircleOutlined /> Thứ {schedule["Thứ"]}:{" "}
-                                    {schedule["Giờ bắt đầu"]} - {schedule["Giờ kết thúc"]}
-                                  </div>
-                                ))}
-                              </div>
-                            </Card>
-                          </Col>
-                        ))}
-                      </Row>
-                    )}
-                  </div>
-                ),
-              },
-              {
-                key: "homework",
-                label: (
-                  <span>
-                    <EditOutlined /> Bài tập về nhà
-                  </span>
-                ),
-                children: (
-                  <div>
-                    <List
-                      dataSource={recentSessions.filter((s) => s["Bài tập"])}
-                      renderItem={(session) => {
-                        const record = session["Điểm danh"]?.find(
-                          (r: any) => r["Student ID"] === userProfile?.studentId
-                        );
-                        const homework = session["Bài tập"];
-                        const completed = record?.["Bài tập hoàn thành"] || 0;
-                        const total = homework?.["Tổng số bài"] || 0;
-                        const percentage = total > 0 ? (completed / total) * 100 : 0;
-
-                        return (
-                          <List.Item>
-                            <Card style={{ width: "100%" }}>
-                              <Row gutter={16}>
-                                <Col span={16}>
-                                  <Space direction="vertical" style={{ width: "100%" }}>
-                                    <div>
-                                      <Tag color="blue">{session["Tên lớp"]}</Tag>
-                                      <Text type="secondary">
-                                        {dayjs(session["Ngày"]).format("DD/MM/YYYY")}
-                                      </Text>
-                                    </div>
-                                    <Paragraph>
-                                      <strong>Mô tả:</strong> {homework["Mô tả"]}
-                                    </Paragraph>
-                                    {/* Bug 11: Hiển thị tài liệu đính kèm */}
-                                    {homework["Tài liệu đính kèm"] && homework["Tài liệu đính kèm"].length > 0 && (
-                                      <div>
-                                        <Text strong><PaperClipOutlined /> Tài liệu đính kèm:</Text>
-                                        <List
-                                          size="small"
-                                          dataSource={homework["Tài liệu đính kèm"]}
-                                          renderItem={(attachment: any) => (
-                                            <List.Item style={{ padding: "4px 0" }}>
-                                              <a 
-                                                href={attachment.url} 
-                                                target="_blank" 
-                                                rel="noopener noreferrer"
-                                                style={{ display: "flex", alignItems: "center", gap: 8 }}
-                                              >
-                                                <PaperClipOutlined /> {attachment.name}
-                                              </a>
-                                            </List.Item>
-                                          )}
-                                        />
-                                      </div>
-                                    )}
-                                    <div>
-                                      <Text type="secondary">
-                                        Giao bởi: {homework["Người giao"]} -{" "}
-                                        {dayjs(homework["Thời gian giao"]).format(
-                                          "DD/MM/YYYY HH:mm"
-                                        )}
-                                      </Text>
-                                    </div>
-                                  </Space>
-                                </Col>
-                                <Col span={8}>
-                                  <Space direction="vertical" style={{ width: "100%" }}>
-                                    <Statistic
-                                      title="Hoàn thành"
-                                      value={completed}
-                                      suffix={`/ ${total}`}
-                                    />
-                                    <Progress
-                                      percent={percentage}
-                                      status={percentage === 100 ? "success" : "active"}
-                                    />
-                                  </Space>
-                                </Col>
-                              </Row>
-                            </Card>
-                          </List.Item>
-                        );
-                      }}
-                      locale={{ emptyText: "Chưa có bài tập nào" }}
-                    />
-                  </div>
-                ),
-              },
-              {
-                key: "attendance",
-                label: (
-                  <span>
-                    <CheckCircleOutlined /> Điểm danh
-                  </span>
-                ),
-                children: (
-                  <Timeline
-                    items={recentSessions.map((session) => {
-                      const record = session["Điểm danh"]?.find(
-                        (r: any) => r["Student ID"] === userProfile?.studentId
-                      );
-
-                      // Calculate study duration if both check-in and check-out exist
-                      let studyDuration = "";
-                      if (record?.["Giờ check-in"] && record?.["Giờ check-out"]) {
-                        const checkIn = dayjs(`2000-01-01 ${record["Giờ check-in"]}`);
-                        const checkOut = dayjs(`2000-01-01 ${record["Giờ check-out"]}`);
-                        const minutes = checkOut.diff(checkIn, "minute");
-                        const hours = Math.floor(minutes / 60);
-                        const mins = minutes % 60;
-                        studyDuration = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
-                      }
-
-                      return {
-                        color: record?.["Có mặt"]
-                          ? "green"
-                          : record?.["Vắng có phép"]
-                            ? "orange"
-                            : "red",
-                        children: (
-                          <div>
-                            <div>
-                              <strong>{dayjs(session["Ngày"]).format("DD/MM/YYYY")}</strong> -{" "}
-                              {session["Tên lớp"]}
-                            </div>
-                            <div>
-                              {session["Giờ bắt đầu"]} - {session["Giờ kết thúc"]}
-                            </div>
-                            <div>
-                              {record?.["Có mặt"] ? (
-                                <Tag color="success">Có mặt</Tag>
-                              ) : record?.["Vắng có phép"] ? (
-                                <Tag color="warning">Vắng có phép</Tag>
-                              ) : (
-                                <Tag color="error">Vắng</Tag>
-                              )}
-                              {record?.["Đi muộn"] && <Tag color="orange">Đi muộn</Tag>}
-                            </div>
-                            {record?.["Có mặt"] && (record?.["Giờ check-in"] || record?.["Giờ check-out"]) && (
-                              <div style={{ marginTop: 8, padding: "8px", backgroundColor: "#f0f9ff", borderRadius: "4px", border: "1px solid #91d5ff" }}>
-                                <Space direction="vertical" size={4} style={{ width: "100%" }}>
-                                  {record?.["Giờ check-in"] && (
-                                    <div style={{ fontSize: "12px" }}>
-                                      <ClockCircleOutlined style={{ color: "#52c41a", marginRight: 4 }} />
-                                      <strong>Check-in:</strong> {record["Giờ check-in"]}
-                                    </div>
-                                  )}
-                                  {record?.["Giờ check-out"] && (
-                                    <div style={{ fontSize: "12px" }}>
-                                      <ClockCircleOutlined style={{ color: "#fa8c16", marginRight: 4 }} />
-                                      <strong>Check-out:</strong> {record["Giờ check-out"]}
-                                    </div>
-                                  )}
-                                  {studyDuration && (
-                                    <div style={{ fontSize: "12px", color: "#1890ff", fontWeight: 500 }}>
-                                      ⏱️ Thời gian học: {studyDuration}
-                                    </div>
-                                  )}
+                      <Collapse 
+                        accordion 
+                        style={{ background: "transparent" }}
+                        items={classes.map((cls) => {
+                          // Get sessions for this class
+                          const classSessions = recentSessions.filter(
+                            (s) => s["Class ID"] === cls.id
+                          );
+                          
+                          // Get homework for this class
+                          const classHomework = classSessions.filter((s) => s["Bài tập"]);
+                          
+                          // Get attendance for this class
+                          const classAttendance = classSessions.map((session) => {
+                            const record = session["Điểm danh"]?.find(
+                              (r: any) => r["Student ID"] === userProfile?.studentId
+                            );
+                            return { session, record };
+                          }).filter((item) => item.record);
+                          
+                          // Get scores for this class from customScoresData
+                          const classScores = allScoresData.filter(
+                            (s) => s.className === cls["Tên lớp"] || s.classId === cls.id
+                          );
+                          
+                          // Get documents for this class
+                          const sessionDocuments = classSessions
+                            .filter((s) => s["Bài tập"]?.["Tài liệu đính kèm"])
+                            .flatMap((s) => (s["Bài tập"]["Tài liệu đính kèm"] || []).map((doc: any) => ({
+                              ...doc,
+                              sessionDate: s["Ngày"],
+                              source: "homework",
+                            })));
+                          const allDocuments = [
+                            ...(cls["Tài liệu"] || []).map((doc: any) => ({ ...doc, source: "class" })),
+                            ...sessionDocuments,
+                          ];
+                          
+                          // Calculate stats
+                          const presentCount = classAttendance.filter((a) => a.record?.["Có mặt"]).length;
+                          const totalCount = classAttendance.length;
+                          const attendanceRate = totalCount > 0 ? Math.round((presentCount / totalCount) * 100) : 0;
+                          const avgScore = classScores.length > 0 
+                            ? (classScores.reduce((sum, s) => sum + (s.score || 0), 0) / classScores.length).toFixed(1)
+                            : "-";
+                          
+                          return {
+                            key: cls.id,
+                            label: (
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
+                                <Space>
+                                  <BookOutlined style={{ color: "#1890ff" }} />
+                                  <span style={{ fontWeight: "bold" }}>{cls["Tên lớp"]}</span>
+                                  <Tag color="blue">{subjectMap[cls["Môn học"]] || cls["Môn học"]}</Tag>
+                                </Space>
+                                <Space>
+                                  <Tag color={attendanceRate >= 80 ? "green" : "orange"}>
+                                    Chuyên cần: {attendanceRate}%
+                                  </Tag>
+                                  <Tag color="purple">ĐTB: {avgScore}</Tag>
+                                  <Tag color={cls["Trạng thái"] === "active" ? "green" : "red"}>
+                                    {cls["Trạng thái"] === "active" ? "Đang học" : "Đã kết thúc"}
+                                  </Tag>
                                 </Space>
                               </div>
-                            )}
-                            {record?.["Ghi chú"] && (
-                              <div style={{ marginTop: 4, color: "#666" }}>
-                                Ghi chú: {record["Ghi chú"]}
+                            ),
+                            children: (
+                              <div>
+                                {/* Class Info */}
+                                <Card size="small" style={{ marginBottom: 16 }}>
+                                  <Row gutter={16}>
+                                    <Col span={12}>
+                                      <Descriptions column={1} size="small">
+                                        <Descriptions.Item label="Giáo viên">
+                                          {cls["Giáo viên chủ nhiệm"]}
+                                        </Descriptions.Item>
+                                        <Descriptions.Item label="Khối">{cls["Khối"]}</Descriptions.Item>
+                                        <Descriptions.Item label="Mã lớp">{cls["Mã lớp"]}</Descriptions.Item>
+                                      </Descriptions>
+                                    </Col>
+                                    <Col span={12}>
+                                      <Text strong>Lịch học:</Text>
+                                      {cls["Lịch học"]?.map((schedule: any, idx: number) => (
+                                        <div key={idx} style={{ marginLeft: 16, marginTop: 4 }}>
+                                          <ClockCircleOutlined /> Thứ {schedule["Thứ"]}:{" "}
+                                          {schedule["Giờ bắt đầu"]} - {schedule["Giờ kết thúc"]}
+                                        </div>
+                                      ))}
+                                    </Col>
+                                  </Row>
+                                </Card>
+                                
+                                {/* Inner Tabs for class details */}
+                                <Tabs
+                                  size="small"
+                                  items={[
+                                    {
+                                      key: "homework",
+                                      label: <span><EditOutlined /> Bài tập về nhà ({classHomework.length})</span>,
+                                      children: (
+                                        <div style={{ maxHeight: 400, overflowY: "auto" }}>
+                                          {classHomework.length === 0 ? (
+                                            <Empty description="Chưa có bài tập" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                                          ) : (
+                                            <List
+                                              size="small"
+                                              dataSource={classHomework}
+                                              renderItem={(session) => {
+                                                const record = session["Điểm danh"]?.find(
+                                                  (r: any) => r["Student ID"] === userProfile?.studentId
+                                                );
+                                                const homework = session["Bài tập"];
+                                                const completed = record?.["Bài tập hoàn thành"] || 0;
+                                                const total = homework?.["Tổng số bài"] || 0;
+                                                const percentage = total > 0 ? (completed / total) * 100 : 0;
+                                                
+                                                return (
+                                                  <List.Item>
+                                                    <div style={{ width: "100%" }}>
+                                                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                                                        <Text type="secondary">
+                                                          {dayjs(session["Ngày"]).format("DD/MM/YYYY")}
+                                                        </Text>
+                                                        <Progress 
+                                                          percent={percentage} 
+                                                          size="small" 
+                                                          style={{ width: 100 }}
+                                                          status={percentage === 100 ? "success" : "active"}
+                                                        />
+                                                      </div>
+                                                      <Paragraph style={{ margin: 0 }}>
+                                                        {homework["Mô tả"]}
+                                                      </Paragraph>
+                                                      {homework["Tài liệu đính kèm"]?.length > 0 && (
+                                                        <div style={{ marginTop: 8 }}>
+                                                          {homework["Tài liệu đính kèm"].map((att: any, idx: number) => (
+                                                            <a 
+                                                              key={idx}
+                                                              href={att.url} 
+                                                              target="_blank" 
+                                                              rel="noopener noreferrer"
+                                                              style={{ marginRight: 12 }}
+                                                            >
+                                                              <PaperClipOutlined /> {att.name}
+                                                            </a>
+                                                          ))}
+                                                        </div>
+                                                      )}
+                                                    </div>
+                                                  </List.Item>
+                                                );
+                                              }}
+                                            />
+                                          )}
+                                        </div>
+                                      ),
+                                    },
+                                    {
+                                      key: "attendance",
+                                      label: <span><CheckCircleOutlined /> Điểm danh ({classAttendance.length})</span>,
+                                      children: (
+                                        <div style={{ maxHeight: 400, overflowY: "auto" }}>
+                                          {classAttendance.length === 0 ? (
+                                            <Empty description="Chưa có dữ liệu điểm danh" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                                          ) : (
+                                            <Timeline
+                                              items={classAttendance.map(({ session, record }) => {
+                                                let studyDuration = "";
+                                                if (record?.["Giờ check-in"] && record?.["Giờ check-out"]) {
+                                                  const checkIn = dayjs(`2000-01-01 ${record["Giờ check-in"]}`);
+                                                  const checkOut = dayjs(`2000-01-01 ${record["Giờ check-out"]}`);
+                                                  const minutes = checkOut.diff(checkIn, "minute");
+                                                  const hours = Math.floor(minutes / 60);
+                                                  const mins = minutes % 60;
+                                                  studyDuration = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+                                                }
+                                                
+                                                return {
+                                                  color: record?.["Có mặt"]
+                                                    ? "green"
+                                                    : record?.["Vắng có phép"]
+                                                      ? "orange"
+                                                      : "red",
+                                                  children: (
+                                                    <div>
+                                                      <div>
+                                                        <strong>{dayjs(session["Ngày"]).format("DD/MM/YYYY")}</strong>
+                                                        {" - "}{session["Giờ bắt đầu"]} - {session["Giờ kết thúc"]}
+                                                      </div>
+                                                      <div>
+                                                        {record?.["Có mặt"] ? (
+                                                          <Tag color="success">Có mặt</Tag>
+                                                        ) : record?.["Vắng có phép"] ? (
+                                                          <Tag color="warning">Vắng có phép</Tag>
+                                                        ) : (
+                                                          <Tag color="error">Vắng</Tag>
+                                                        )}
+                                                        {record?.["Đi muộn"] && <Tag color="orange">Đi muộn</Tag>}
+                                                        {studyDuration && (
+                                                          <Tag color="blue">⏱️ {studyDuration}</Tag>
+                                                        )}
+                                                      </div>
+                                                      {record?.["Ghi chú"] && (
+                                                        <div style={{ marginTop: 4, color: "#666", fontSize: 12 }}>
+                                                          Ghi chú: {record["Ghi chú"]}
+                                                        </div>
+                                                      )}
+                                                    </div>
+                                                  ),
+                                                };
+                                              })}
+                                            />
+                                          )}
+                                        </div>
+                                      ),
+                                    },
+                                    {
+                                      key: "scores",
+                                      label: <span><TrophyOutlined /> Điểm kiểm tra ({classScores.length})</span>,
+                                      children: (
+                                        <div style={{ maxHeight: 400, overflowY: "auto" }}>
+                                          {classScores.length === 0 ? (
+                                            <Empty description="Chưa có điểm kiểm tra" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                                          ) : (
+                                            <Table
+                                              size="small"
+                                              dataSource={classScores}
+                                              rowKey="id"
+                                              pagination={false}
+                                              columns={[
+                                                {
+                                                  title: "Ngày",
+                                                  dataIndex: "date",
+                                                  render: (date) => date ? dayjs(date).format("DD/MM/YYYY") : "-",
+                                                  width: 100,
+                                                },
+                                                {
+                                                  title: "Bài kiểm tra",
+                                                  dataIndex: "testName",
+                                                },
+                                                {
+                                                  title: "Điểm",
+                                                  dataIndex: "score",
+                                                  align: "center",
+                                                  width: 80,
+                                                  render: (score) => (
+                                                    <Tag
+                                                      color={
+                                                        score >= 8 ? "green" : score >= 6.5 ? "blue" : score >= 5 ? "orange" : "red"
+                                                      }
+                                                      style={{ fontSize: 14, padding: "2px 8px" }}
+                                                    >
+                                                      {score}
+                                                    </Tag>
+                                                  ),
+                                                },
+                                              ]}
+                                            />
+                                          )}
+                                        </div>
+                                      ),
+                                    },
+                                    {
+                                      key: "documents",
+                                      label: <span><FileTextOutlined /> Tài liệu ({allDocuments.length})</span>,
+                                      children: (
+                                        <div style={{ maxHeight: 400, overflowY: "auto" }}>
+                                          {allDocuments.length === 0 ? (
+                                            <Empty description="Chưa có tài liệu" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                                          ) : (
+                                            <List
+                                              size="small"
+                                              dataSource={allDocuments}
+                                              renderItem={(doc: any) => (
+                                                <List.Item
+                                                  actions={[
+                                                    <Button
+                                                      type="link"
+                                                      size="small"
+                                                      icon={<DownloadOutlined />}
+                                                      href={doc.url}
+                                                      target="_blank"
+                                                    >
+                                                      Tải
+                                                    </Button>,
+                                                  ]}
+                                                >
+                                                  <List.Item.Meta
+                                                    avatar={
+                                                      doc.source === "homework" 
+                                                        ? <PaperClipOutlined style={{ fontSize: 20, color: "#fa8c16" }} />
+                                                        : <FileTextOutlined style={{ fontSize: 20, color: "#1890ff" }} />
+                                                    }
+                                                    title={
+                                                      <Space>
+                                                        {doc.name || doc.title}
+                                                        {doc.source === "homework" && (
+                                                          <Tag color="orange" style={{ fontSize: 10 }}>BTVN</Tag>
+                                                        )}
+                                                      </Space>
+                                                    }
+                                                    description={
+                                                      doc.sessionDate 
+                                                        ? `Buổi học: ${dayjs(doc.sessionDate).format("DD/MM/YYYY")}`
+                                                        : doc.uploadedAt 
+                                                          ? `Đăng tải: ${dayjs(doc.uploadedAt).format("DD/MM/YYYY")}`
+                                                          : null
+                                                    }
+                                                  />
+                                                </List.Item>
+                                              )}
+                                            />
+                                          )}
+                                        </div>
+                                      ),
+                                    },
+                                  ]}
+                                />
                               </div>
-                            )}
-                          </div>
-                        ),
-                      };
-                    })}
-                  />
-                ),
-              },
-              {
-                key: "scores",
-                label: (
-                  <span>
-                    <TrophyOutlined /> Điểm kiểm tra
-                  </span>
-                ),
-                children: (
-                  <div>
-                    <Table
-                      dataSource={allScoresData}
-                      rowKey="id"
-                      columns={[
-                        {
-                          title: "Ngày",
-                          dataIndex: "date",
-                          key: "date",
-                          render: (date) => date ? dayjs(date).format("DD/MM/YYYY") : "-",
-                        },
-                        {
-                          title: "Lớp học",
-                          dataIndex: "className",
-                          key: "class",
-                        },
-                        {
-                          title: "Bài kiểm tra",
-                          dataIndex: "testName",
-                          key: "testName",
-                        },
-                        {
-                          title: "Điểm",
-                          dataIndex: "score",
-                          key: "score",
-                          align: "center",
-                          render: (score) => (
-                            score !== null && score !== undefined ? (
-                              <Tag
-                                color={
-                                  score >= 8 ? "green" : score >= 6.5 ? "blue" : score >= 5 ? "orange" : "red"
-                                }
-                                style={{ fontSize: 16, padding: "4px 12px" }}
-                              >
-                                {score}
-                              </Tag>
-                            ) : "-"
-                          ),
-                        },
-                        {
-                          title: "Ghi chú",
-                          dataIndex: "note",
-                          key: "note",
-                          render: (note) => note || "-",
-                        },
-                      ]}
-                      pagination={{ pageSize: 10 }}
-                      locale={{ emptyText: "Chưa có điểm kiểm tra nào" }}
-                    />
+                            ),
+                          };
+                        })}
+                      />
+                    )}
                   </div>
                 ),
               },
@@ -1486,121 +1539,6 @@ const ParentPortal: React.FC = () => {
                         },
                       ]}
                     />
-                  </div>
-                ),
-              },
-              {
-                key: "documents",
-                label: (
-                  <span>
-                    <FileTextOutlined /> Tài liệu học tập
-                  </span>
-                ),
-                children: (
-                  <div>
-                    {classes.length === 0 ? (
-                      <Empty description="Chưa có lớp học nào" />
-                    ) : (
-                      <Row gutter={[16, 16]}>
-                        {classes.map((cls) => {
-                          // Bug 12: Lấy tài liệu từ các buổi học (BTVN attachments)
-                          const sessionDocuments = recentSessions
-                            .filter((s) => s["Class ID"] === cls.id && s["Bài tập"]?.["Tài liệu đính kèm"])
-                            .flatMap((s) => (s["Bài tập"]["Tài liệu đính kèm"] || []).map((doc: any) => ({
-                              ...doc,
-                              sessionDate: s["Ngày"],
-                              sessionName: s["Tên lớp"],
-                              source: "homework",
-                            })));
-                          
-                          // Kết hợp tài liệu lớp và tài liệu BTVN
-                          const allDocuments = [
-                            ...(cls["Tài liệu"] || []).map((doc: any) => ({ ...doc, source: "class" })),
-                            ...sessionDocuments,
-                          ];
-
-                          return (
-                            <Col xs={24} key={cls.id}>
-                              <Card
-                                title={
-                                  <Space>
-                                    <BookOutlined />
-                                    {cls["Tên lớp"]} - {subjectMap[cls["Môn học"]] || cls["Môn học"]}
-                                  </Space>
-                                }
-                                extra={
-                                  <Tag color={cls["Trạng thái"] === "active" ? "green" : "red"}>
-                                    {cls["Trạng thái"] === "active" ? "Đang học" : "Đã kết thúc"}
-                                  </Tag>
-                                }
-                              >
-                                {allDocuments.length > 0 ? (
-                                  <List
-                                    dataSource={allDocuments}
-                                    renderItem={(doc: any) => (
-                                      <List.Item
-                                        actions={[
-                                          <Button
-                                            type="link"
-                                            icon={<DownloadOutlined />}
-                                            href={doc.url}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                          >
-                                            Tải xuống
-                                          </Button>,
-                                        ]}
-                                      >
-                                        <List.Item.Meta
-                                          avatar={
-                                            doc.source === "homework" 
-                                              ? <PaperClipOutlined style={{ fontSize: 24, color: "#fa8c16" }} />
-                                              : <FileTextOutlined style={{ fontSize: 24, color: "#1890ff" }} />
-                                          }
-                                          title={
-                                            <Space>
-                                              {doc.name || doc.title}
-                                              {doc.source === "homework" && (
-                                                <Tag color="orange" style={{ fontSize: 10 }}>BTVN</Tag>
-                                              )}
-                                            </Space>
-                                          }
-                                          description={
-                                            <Space direction="vertical" size="small">
-                                              {doc.description && <Text type="secondary">{doc.description}</Text>}
-                                              {doc.sessionDate && (
-                                                <Text type="secondary" style={{ fontSize: 12 }}>
-                                                  Buổi học: {dayjs(doc.sessionDate).format("DD/MM/YYYY")}
-                                                </Text>
-                                              )}
-                                              {doc.uploadedAt && (
-                                                <Text type="secondary" style={{ fontSize: 12 }}>
-                                                  Đăng tải: {dayjs(doc.uploadedAt).format("DD/MM/YYYY HH:mm")}
-                                                </Text>
-                                              )}
-                                              {doc.uploadedBy && (
-                                                <Text type="secondary" style={{ fontSize: 12 }}>
-                                                  Bởi: {doc.uploadedBy}
-                                                </Text>
-                                              )}
-                                            </Space>
-                                          }
-                                        />
-                                      </List.Item>
-                                    )}
-                                  />
-                                ) : (
-                                  <Empty
-                                    description="Chưa có tài liệu nào"
-                                    image={Empty.PRESENTED_IMAGE_SIMPLE}
-                                  />
-                                )}
-                              </Card>
-                            </Col>
-                          );
-                        })}
-                      </Row>
-                    )}
                   </div>
                 ),
               },
