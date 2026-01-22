@@ -3121,8 +3121,9 @@ const InvoicePage = () => {
         key: "debt",
         width: 130,
         render: (_: any, record: GroupedStudentInvoice) => {
-          // Nợ = Thành tiền (chưa thanh toán)
-          const debt = record.status === "unpaid" ? record.finalAmount : 0;
+          // Nợ học phí = nợ từ các tháng trước (không bao gồm tháng hiện tại)
+          // Nếu không có tháng trước thì = 0đ
+          const debt = calculateStudentTotalDebt(record.studentId, record.month, record.year);
           return (
             <Text strong style={{ color: debt > 0 ? "#ff4d4f" : "#52c41a", fontSize: "14px" }}>
               {debt.toLocaleString("vi-VN")} đ
@@ -3348,8 +3349,9 @@ const InvoicePage = () => {
         key: "debt",
         width: 130,
         render: (_: any, record: StudentInvoice) => {
-          // Nợ = 0 nếu đã thanh toán, = finalAmount nếu chưa thanh toán
-          const debt = record.status === "unpaid" ? record.finalAmount : 0;
+          // Nợ học phí = nợ từ các tháng trước (không bao gồm tháng hiện tại)
+          // Nếu không có tháng trước thì = 0đ
+          const debt = calculateStudentTotalDebt(record.studentId, record.month, record.year);
           return (
             <Text strong style={{ color: debt > 0 ? "#ff4d4f" : "#52c41a", fontSize: "14px" }}>
               {debt.toLocaleString("vi-VN")} đ
