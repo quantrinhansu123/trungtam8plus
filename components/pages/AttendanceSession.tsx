@@ -1773,6 +1773,18 @@ const AttendanceSessionPage = () => {
             step={0.5}
             placeholder="Điểm"
             value={attendanceRecord?.["Điểm kiểm tra"] ?? null}
+            // Parser: Chuyển đổi dấu phẩy thành dấu chấm để hỗ trợ nhập số thập phân kiểu Việt Nam (8,5 -> 8.5)
+            parser={(value) => {
+              if (!value) return null as any;
+              // Thay thế dấu phẩy bằng dấu chấm
+              const parsed = parseFloat(value.replace(',', '.'));
+              return isNaN(parsed) ? null as any : parsed;
+            }}
+            // Formatter: Hiển thị số với dấu chấm (chuẩn)
+            formatter={(value) => {
+              if (value === null || value === undefined) return '';
+              return String(value);
+            }}
             onChange={(value) => handleTestScoreChange(record.id, value)}
             onBlur={() => {
               // Ensure save on blur
