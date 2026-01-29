@@ -15,7 +15,7 @@ import {
 } from "antd";
 import { EyeOutlined, EditOutlined, DeleteOutlined, DownloadOutlined, PrinterOutlined, ClockCircleOutlined, LoginOutlined, LogoutOutlined } from "@ant-design/icons";
 import { useParams, useNavigate } from "react-router-dom";
-import { ref, onValue, update, remove } from "firebase/database";
+import { ref, onValue, update, remove, get } from "firebase/database";
 import { database } from "../../firebase";
 import { AttendanceSession, AttendanceRecord } from "../../types";
 import dayjs from "dayjs";
@@ -186,15 +186,217 @@ const ClassSessionHistory = () => {
 
   const handleDelete = async (sessionId: string) => {
     try {
+      // Lấy thông tin session trước khi xóa
       const sessionRef = ref(
         database,
         `datasheet/Điểm_danh_sessions/${sessionId}`
       );
+      const sessionSnapshot = await get(sessionRef);
+      
+      if (!sessionSnapshot.exists()) {
+        message.warning("Không tìm thấy buổi học");
+        return;
+      }
+      
+      const sessionData = sessionSnapshot.val();
+      const sessionDate = sessionData["Ngày"];
+      const classId = sessionData["Class ID"];
+      const attendanceRecords = sessionData["Điểm danh"] || [];
+      const sessionDateObj = new Date(sessionDate);
+      const targetMonth = sessionDateObj.getMonth();
+      const targetYear = sessionDateObj.getFullYear();
+
+      // Xóa session
       await remove(sessionRef);
-      message.success("Đã xóa buổi học");
+
+      // Đồng bộ xóa invoice cho từng học sinh
+      const invoiceUpdates: Promise<void>[] = [];
+      for (const record of attendanceRecords) {
+        const studentId = record["Student ID"];
+        if (!studentId) continue;
+
+        // Key format mới: studentId-classId-month-year
+        const invoiceKey = `${studentId}-${classId}-${targetMonth}-${targetYear}`;
+        const invoiceRef = ref(database, `datasheet/Phiếu_thu_học_phí/${invoiceKey}`);
+        
+        const invoiceSnapshot = await get(invoiceRef);
+        if (invoiceSnapshot.exists()) {
+          const invoiceData = invoiceSnapshot.val();
+          if (invoiceData.status === "paid") continue;
+
+          const sessions = Array.isArray(invoiceData.sessions) ? invoiceData.sessions : [];
+          const filteredSessions = sessions.filter((s: any) => s["Ngày"] !== sessionDate);
+          
+          if (filteredSessions.length === 0) {
+            invoiceUpdates.push(remove(invoiceRef));
+          } else {
+            const pricePerSession = (invoiceData.totalAmount || 0) / (sessions.length || 1);
+            const newTotalAmount = pricePerSession * filteredSessions.length;
+            const newFinalAmount = Math.max(0, newTotalAmount - (invoiceData.discount || 0));
+            invoiceUpdates.push(update(invoiceRef, {
+              sessions: filteredSessions,
+              totalSessions: filteredSessions.length,
+              totalAmount: newTotalAmount,
+              finalAmount: newFinalAmount,
+            }));
+          }
+        }
+
+        // Kiểm tra key format cũ: studentId-month-year
+        const oldInvoiceKey = `${studentId}-${targetMonth}-${targetYear}`;
+        const oldInvoiceRef = ref(database, `datasheet/Phiếu_thu_học_phí/${oldInvoiceKey}`);
+        const oldInvoiceSnapshot = await get(oldInvoiceRef);
+        if (oldInvoiceSnapshot.exists()) {
+          const invoiceData = oldInvoiceSnapshot.val();
+          if (invoiceData.status === "paid") continue;
+
+          const sessions = Array.isArray(invoiceData.sessions) ? invoiceData.sessions : [];
+          const filteredSessions = sessions.filter((s: any) => !(s["Ngày"] === sessionDate && s["Class ID"] === classId));
+          
+          if (filteredSessions.length === 0) {
+            invoiceUpdates.push(remove(oldInvoiceRef));
+          } else {
+            const pricePerSession = (invoiceData.totalAmount || 0) / (sessions.length || 1);
+            const newTotalAmount = pricePerSession * filteredSessions.length;
+            const newFinalAmount = Math.max(0, newTotalAmount - (invoiceData.discount || 0));
+            invoiceUpdates.push(update(oldInvoiceRef, {
+              sessions: filteredSessions,
+              totalSessions: filteredSessions.length,
+              totalAmount: newTotalAmount,
+              finalAmount: newFinalAmount,
+            }));
+          }
+        }
+      }
+
+      await Promise.all(invoiceUpdates);
+      
+      // Sync monthly reports - update stats for affected students
+      const affectedStudentIds = attendanceRecords.map((r: any) => r["Student ID"]).filter(Boolean) as string[];
+      if (affectedStudentIds.length > 0) {
+        await syncMonthlyReportsAfterDelete(
+          targetMonth,
+          targetYear,
+          classId,
+          sessionData["Tên lớp"] || "",
+          affectedStudentIds
+        );
+      }
+      
+      message.success("Đã xóa buổi học và cập nhật hóa đơn");
     } catch (error) {
       console.error("Error deleting session:", error);
       message.error("Không thể xóa buổi học");
+    }
+  };
+
+  // Sync monthly reports when attendance is deleted
+  const syncMonthlyReportsAfterDelete = async (
+    targetMonth: number,
+    targetYear: number,
+    classId: string,
+    className: string,
+    affectedStudentIds: string[]
+  ) => {
+    if (affectedStudentIds.length === 0) return;
+
+    try {
+      const monthStr = `${targetYear}-${String(targetMonth + 1).padStart(2, "0")}`;
+
+      // Get all monthly reports
+      const reportsRef = ref(database, "datasheet/Nhận_xét_tháng");
+      const reportsSnapshot = await get(reportsRef);
+      if (!reportsSnapshot.exists()) return;
+      const reportsData = reportsSnapshot.val();
+
+      // Get all attendance sessions for recalculation
+      const sessionsRef = ref(database, "datasheet/Điểm_danh_sessions");
+      const sessionsSnapshot = await get(sessionsRef);
+      const sessionsData = sessionsSnapshot.exists() ? sessionsSnapshot.val() : {};
+      
+      const allSessions = Object.entries(sessionsData).map(([id, value]: [string, any]) => ({
+        id,
+        ...value,
+      }));
+
+      // Filter sessions for this month and class
+      const monthSessions = allSessions.filter((s: any) => {
+        const sessionDate = dayjs(s["Ngày"]);
+        return sessionDate.month() === targetMonth &&
+               sessionDate.year() === targetYear &&
+               s["Class ID"] === classId;
+      });
+
+      const updatePromises: Promise<void>[] = [];
+
+      // Find and update reports for affected students
+      Object.entries(reportsData).forEach(([reportId, report]: [string, any]) => {
+        if (report.month !== monthStr) return;
+        if (!affectedStudentIds.includes(report.studentId)) return;
+        if (report.status === "approved") return;
+        if (!report.classIds?.includes(classId)) return;
+
+        // Recalculate stats for this student in this class
+        let totalSessions = 0;
+        let presentSessions = 0;
+        let absentSessions = 0;
+
+        monthSessions.forEach((session: any) => {
+          const record = session["Điểm danh"]?.find((r: any) => r["Student ID"] === report.studentId);
+          if (record) {
+            totalSessions++;
+            if (record["Có mặt"] === true || record["Vắng có phép"] === true) {
+              presentSessions++;
+            } else {
+              absentSessions++;
+            }
+          }
+        });
+
+        // Update classStats
+        const updatedClassStats = (report.stats?.classStats || []).map((cs: any) => {
+          if (cs.classId === classId) {
+            return {
+              ...cs,
+              totalSessions,
+              presentSessions,
+              absentSessions,
+              attendanceRate: totalSessions > 0 ? Math.round((presentSessions / totalSessions) * 100) : 0,
+            };
+          }
+          return cs;
+        });
+
+        // Recalculate totals
+        const newTotalSessions = updatedClassStats.reduce((sum: number, cs: any) => sum + (cs.totalSessions || 0), 0);
+        const newPresentSessions = updatedClassStats.reduce((sum: number, cs: any) => sum + (cs.presentSessions || 0), 0);
+        const newAbsentSessions = updatedClassStats.reduce((sum: number, cs: any) => sum + (cs.absentSessions || 0), 0);
+
+        const updatedStats = {
+          ...report.stats,
+          totalSessions: newTotalSessions,
+          presentSessions: newPresentSessions,
+          absentSessions: newAbsentSessions,
+          attendanceRate: newTotalSessions > 0 ? Math.round((newPresentSessions / newTotalSessions) * 100) : 0,
+          classStats: updatedClassStats,
+        };
+
+        const reportRef = ref(database, `datasheet/Nhận_xét_tháng/${reportId}`);
+        updatePromises.push(update(reportRef, {
+          stats: updatedStats,
+          updatedAt: new Date().toISOString(),
+        }));
+      });
+
+      await Promise.all(updatePromises);
+      console.log("[ReportSync] Synced monthly reports after delete", {
+        classId,
+        month: monthStr,
+        affectedStudents: affectedStudentIds.length,
+        reportsUpdated: updatePromises.length,
+      });
+    } catch (error) {
+      console.error("[ReportSync] Failed to sync monthly reports", error);
     }
   };
 

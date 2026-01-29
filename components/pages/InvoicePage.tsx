@@ -34,6 +34,7 @@ import {
   FileImageOutlined,
   DeleteOutlined,
   MoreOutlined,
+  RollbackOutlined,
 } from "@ant-design/icons";
 import { EditOutlined } from "@ant-design/icons";
 import React, { useState, useEffect, useMemo } from "react";
@@ -447,19 +448,20 @@ const InvoicePage = () => {
       const studentId = invoiceData.studentId || key.split("-")[0];
       const student = students.find((s) => String(s.id) === String(studentId));
 
-      // Get class/course info from sessions
-      let className = "";
-      let classCode = "";
+      // Get class/course info - prefer saved data, fallback to sessions
+      let className = invoiceData.className || "";
+      let classCode = invoiceData.classCode || "";
       let subject = "";
       let pricePerSession = 0;
+      let classId = invoiceData.classId || "";
 
       if (invoiceData.sessions && invoiceData.sessions.length > 0) {
         const firstSession = invoiceData.sessions[0];
-        className = firstSession["Tên lớp"] || "";
-        classCode = firstSession["Mã lớp"] || "";
+        if (!className) className = firstSession["Tên lớp"] || "";
+        if (!classCode) classCode = firstSession["Mã lớp"] || "";
+        if (!classId) classId = firstSession["Class ID"] || "";
 
         // Get subject from class info
-        const classId = firstSession["Class ID"];
         const classInfo = classes.find((c) => c.id === classId);
         if (classInfo) {
           subject = classInfo["Môn học"] || "";
@@ -914,6 +916,26 @@ const InvoicePage = () => {
     } catch (error) {
       console.error("Error deleting invoice:", error);
       message.error("Lỗi khi xóa phiếu thu");
+    }
+  };
+
+  // Revert paid invoice back to unpaid status
+  const handleRevertToUnpaid = async (invoiceId: string) => {
+    try {
+      const invoiceRef = ref(
+        database,
+        `datasheet/Phiếu_thu_học_phí/${invoiceId}`
+      );
+      await update(invoiceRef, {
+        status: "unpaid",
+        paidAt: null,
+        paidBy: null,
+      });
+      message.success("Đã chuyển phiếu thu về trạng thái chưa thanh toán");
+      setRefreshTrigger((prev) => prev + 1);
+    } catch (error) {
+      console.error("Error reverting invoice:", error);
+      message.error("Lỗi khi hoàn trả phiếu thu");
     }
   };
 
@@ -2038,7 +2060,7 @@ const InvoicePage = () => {
               .header {
                   background-color: var(--primary-navy); color: white; padding: 12px 15px;
                   position: relative; z-index: 2; border-bottom: 4px solid var(--accent-yellow);
-                  display: flex; align-items: center; justify-content: space-between;
+                  display: flex; align-items: center; gap: 15px;
                   border-radius: 8px 8px 0 0; margin-bottom: 10px;
                   box-shadow: 0 4px 6px rgba(0,0,0,0.05);
               }
@@ -2085,15 +2107,15 @@ const InvoicePage = () => {
               thead { background-color: var(--primary-navy); color: white; }
               th { padding: 8px 5px; text-align: left; font-weight: 600; text-transform: uppercase; font-size: 9px; border-right: 1px solid rgba(255,255,255,0.2); }
               th:last-child { border-right: none; }
-              td { padding: 6px 5px; border-bottom: 1px solid var(--border-color); border-right: 1px solid var(--border-color); color: #444; vertical-align: middle; }
+              td { padding: 6px 5px; border-bottom: 1px solid var(--border-color); border-right: 1px solid var(--border-color); color: #000 !important; font-weight: 900 !important; vertical-align: middle; }
               td:last-child { border-right: none; }
               tr:last-child td { border-bottom: none; }
               tr:nth-child(even) { background-color: #f9f9f9; }
               .row-icon { color: var(--primary-navy); margin-right: 3px; opacity: 0.7; font-size: 10px; }
               .text-right { text-align: right; } .text-center { text-align: center; }
-              .text-red { color: var(--accent-red); font-weight: 700; }
-              .text-orange { color: #d35400; font-weight: 700; }
-              .total-row-highlight { font-size: 12px; font-weight: 800; color: var(--accent-red); text-transform: uppercase; }
+              .text-red { color: var(--accent-red) !important; font-weight: 900 !important; }
+              .text-orange { color: #d35400 !important; font-weight: 900 !important; }
+              .total-row-highlight { font-size: 12px; font-weight: 900 !important; color: var(--accent-red) !important; text-transform: uppercase; }
       
               /* --- FOOTER --- */
               .bottom-layout { display: flex; gap: 15px; margin-top: auto; padding-bottom: 0px; align-items: flex-start; }
@@ -3233,27 +3255,6 @@ const InvoicePage = () => {
               >
                 Xác nhận TT
               </Menu.Item>
-              <Menu.Item
-                key="delete"
-                danger
-                icon={<DeleteOutlined />}
-                onClick={() => {
-                  Modal.confirm({
-                    title: "Xác nhận xóa",
-                    content: "Bạn có chắc chắn muốn xóa tất cả phiếu thu của học sinh này?",
-                    okText: "Xóa",
-                    cancelText: "Hủy",
-                    okType: "danger",
-                    onOk: () => {
-                      record.invoices.forEach((invoice) => {
-                        handleDeleteInvoice(invoice.id);
-                      });
-                    },
-                  });
-                }}
-              >
-                Xóa
-              </Menu.Item>
             </Menu>
           );
 
@@ -3382,7 +3383,7 @@ const InvoicePage = () => {
       {
         title: "Thao tác",
         key: "actions",
-        width: 200,
+        width: 220,
         render: (_: any, record: StudentInvoice) => (
           <Space>
             <Button
@@ -3393,26 +3394,24 @@ const InvoicePage = () => {
               Xem
             </Button>
             <Popconfirm
-              title="Xác nhận xóa"
-              description="Bạn có chắc chắn muốn xóa phiếu thu này?"
-              onConfirm={() => handleDeleteInvoice(record.id)}
-              okText="Xóa"
+              title="Hoàn trả về chưa thanh toán"
+              description="Chuyển phiếu thu này về trạng thái chưa thanh toán?"
+              onConfirm={() => handleRevertToUnpaid(record.id)}
+              okText="Hoàn trả"
               cancelText="Hủy"
-              okType="danger"
             >
               <Button
                 size="small"
-                danger
-                icon={<DeleteOutlined />}
+                icon={<RollbackOutlined />}
               >
-                Xóa
+                Hoàn trả
               </Button>
             </Popconfirm>
           </Space>
         ),
       },
     ],
-    [viewStudentInvoice, handleDeleteInvoice]
+    [viewStudentInvoice, handleRevertToUnpaid]
   );
 
   // Columns for expanded row (class details)
@@ -4083,33 +4082,13 @@ const InvoicePage = () => {
         </Col>
       </Row>
 
-      {/* Bulk delete button */}
-      {selectedPaidRowKeys.length > 0 && (
-        <div className="mb-4">
-          <Button
-            type="primary"
-            danger
-            icon={<DeleteOutlined />}
-            onClick={handleDeleteMultiplePaidInvoices}
-          >
-            Xóa {selectedPaidRowKeys.length} phiếu đã chọn
-          </Button>
-        </div>
-      )}
-
-      {/* Table - Read only, no print button and no edit */}
+      {/* Table - Read only, with revert option */}
       <Table
         columns={paidStudentColumns}
         dataSource={filteredPaidStudentInvoices}
         loading={loading}
         rowKey="id"
         pagination={{ pageSize: 10, showSizeChanger: false }}
-        rowSelection={{
-          selectedRowKeys: selectedPaidRowKeys,
-          onChange: (newSelectedRowKeys) => {
-            setSelectedPaidRowKeys(newSelectedRowKeys);
-          },
-        }}
         expandable={{
           expandedRowRender,
           rowExpandable: (record) => record.sessions.length > 0,

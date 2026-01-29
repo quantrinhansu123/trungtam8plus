@@ -197,23 +197,21 @@ const AttendanceSessionPage = () => {
 
       const upsertPromises: Promise<void>[] = [];
 
-      // Only process students in the current attendance records
+      // Process ALL students in the attendance records (including absent students)
       currentAttendanceRecords.forEach((record) => {
         const studentId = record["Student ID"];
         const isPresent = record["Có mặt"] === true;
         const isExcused = record["Vắng có phép"] === true;
+        const shouldHaveInvoice = isPresent || isExcused;
 
-        // Only create invoice for students who are present or excused
-        if (!studentId || (!isPresent && !isExcused)) return;
+        if (!studentId) return;
 
         const student = studentsMap[studentId];
-        const key = `${studentId}-${targetMonth}-${targetYear}`;
+        // Key bao gồm classId để tách riêng hóa đơn cho từng lớp
+        const key = `${studentId}-${currentClassId}-${targetMonth}-${targetYear}`;
         const existing = existingInvoices[key];
         const existingStatus = typeof existing === "object" && existing !== null ? existing.status : existing;
         const isPaid = existingStatus === "paid";
-
-        // Don't modify paid invoices
-        if (isPaid) return;
 
         const sessionInfo = {
           Ngày: sessionDate,
@@ -222,43 +220,136 @@ const AttendanceSessionPage = () => {
           "Class ID": currentClassId,
         };
 
-        // If invoice already exists, add this session to it
-        if (existing && typeof existing === "object") {
-          const existingSessions = Array.isArray(existing.sessions) ? existing.sessions : [];
-          // Check if this session already exists in the invoice
-          const sessionExists = existingSessions.some(
-            (s: any) => s["Ngày"] === sessionDate && s["Class ID"] === currentClassId
-          );
-          
-          if (!sessionExists) {
-            const updatedInvoice = {
-              ...existing,
-              totalSessions: (existing.totalSessions || 0) + 1,
-              totalAmount: (existing.totalAmount || 0) + pricePerSession,
-              finalAmount: Math.max(0, (existing.totalAmount || 0) + pricePerSession - (existing.discount || 0)),
-              sessions: [...existingSessions, sessionInfo],
+        if (shouldHaveInvoice) {
+          // Học sinh có mặt hoặc vắng có phép → thêm vào invoice
+          if (existing && typeof existing === "object") {
+            // Nếu invoice đã paid, kiểm tra xem buổi này đã có trong invoice chưa
+            const existingSessions = Array.isArray(existing.sessions) ? existing.sessions : [];
+            const sessionExistsInPaidInvoice = existingSessions.some(
+              (s: any) => s["Ngày"] === sessionDate
+            );
+            
+            if (isPaid) {
+              // Invoice đã paid - chỉ tạo invoice bổ sung nếu buổi này chưa được tính
+              if (!sessionExistsInPaidInvoice) {
+                // Tạo invoice bổ sung với key mới: thêm "-extra" hoặc tìm invoice unpaid cho buổi mới
+                const extraKey = `${studentId}-${currentClassId}-${targetMonth}-${targetYear}-extra`;
+                const existingExtra = existingInvoices[extraKey];
+                
+                if (existingExtra && typeof existingExtra === "object" && existingExtra.status !== "paid") {
+                  // Đã có invoice bổ sung, thêm buổi vào
+                  const extraSessions = Array.isArray(existingExtra.sessions) ? existingExtra.sessions : [];
+                  const sessionExistsInExtra = extraSessions.some((s: any) => s["Ngày"] === sessionDate);
+                  if (!sessionExistsInExtra) {
+                    const updatedInvoice = {
+                      ...existingExtra,
+                      totalSessions: (existingExtra.totalSessions || 0) + 1,
+                      totalAmount: (existingExtra.totalAmount || 0) + pricePerSession,
+                      finalAmount: Math.max(0, (existingExtra.totalAmount || 0) + pricePerSession - (existingExtra.discount || 0)),
+                      sessions: [...extraSessions, sessionInfo],
+                    };
+                    const invoiceRef = ref(database, `datasheet/Phiếu_thu_học_phí/${extraKey}`);
+                    upsertPromises.push(update(invoiceRef, updatedInvoice));
+                  }
+                } else if (!existingExtra) {
+                  // Tạo invoice bổ sung mới
+                  const newExtraInvoice = {
+                    id: extraKey,
+                    studentId,
+                    studentName: student?.["Họ và tên"] || record["Tên học sinh"] || "",
+                    studentCode: student?.["Mã học sinh"] || "",
+                    classId: currentClassId,
+                    className: classData["Tên lớp"],
+                    classCode: classData["Mã lớp"],
+                    month: targetMonth,
+                    year: targetYear,
+                    totalSessions: 1,
+                    totalAmount: pricePerSession,
+                    discount: 0,
+                    finalAmount: pricePerSession,
+                    status: "unpaid",
+                    sessions: [sessionInfo],
+                    isExtra: true, // Đánh dấu là invoice bổ sung
+                    parentInvoiceId: key, // Liên kết với invoice gốc đã paid
+                  };
+                  const invoiceRef = ref(database, `datasheet/Phiếu_thu_học_phí/${extraKey}`);
+                  upsertPromises.push(update(invoiceRef, newExtraInvoice));
+                }
+              }
+              // Không sửa invoice đã paid
+              return;
+            }
+            
+            // Invoice chưa paid - thêm buổi bình thường
+            const sessionExists = existingSessions.some(
+              (s: any) => s["Ngày"] === sessionDate
+            );
+            
+            if (!sessionExists) {
+              const updatedInvoice = {
+                ...existing,
+                totalSessions: (existing.totalSessions || 0) + 1,
+                totalAmount: (existing.totalAmount || 0) + pricePerSession,
+                finalAmount: Math.max(0, (existing.totalAmount || 0) + pricePerSession - (existing.discount || 0)),
+                sessions: [...existingSessions, sessionInfo],
+              };
+              const invoiceRef = ref(database, `datasheet/Phiếu_thu_học_phí/${key}`);
+              upsertPromises.push(update(invoiceRef, updatedInvoice));
+            }
+          } else {
+            // Create new invoice
+            const newInvoice = {
+              id: key,
+              studentId,
+              studentName: student?.["Họ và tên"] || record["Tên học sinh"] || "",
+              studentCode: student?.["Mã học sinh"] || "",
+              classId: currentClassId,
+              className: classData["Tên lớp"],
+              classCode: classData["Mã lớp"],
+              month: targetMonth,
+              year: targetYear,
+              totalSessions: 1,
+              totalAmount: pricePerSession,
+              discount: 0,
+              finalAmount: pricePerSession,
+              status: "unpaid",
+              sessions: [sessionInfo],
             };
             const invoiceRef = ref(database, `datasheet/Phiếu_thu_học_phí/${key}`);
-            upsertPromises.push(update(invoiceRef, updatedInvoice));
+            upsertPromises.push(update(invoiceRef, newInvoice));
           }
         } else {
-          // Create new invoice for this student
-          const newInvoice = {
-            id: key,
-            studentId,
-            studentName: student?.["Họ và tên"] || record["Tên học sinh"] || "",
-            studentCode: student?.["Mã học sinh"] || "",
-            month: targetMonth,
-            year: targetYear,
-            totalSessions: 1,
-            totalAmount: pricePerSession,
-            discount: 0,
-            finalAmount: pricePerSession,
-            status: "unpaid",
-            sessions: [sessionInfo],
-          };
-          const invoiceRef = ref(database, `datasheet/Phiếu_thu_học_phí/${key}`);
-          upsertPromises.push(update(invoiceRef, newInvoice));
+          // Học sinh vắng không phép → xóa session này khỏi invoice nếu có
+          // Không xử lý invoice đã paid
+          if (isPaid) return;
+          
+          if (existing && typeof existing === "object") {
+            const existingSessions = Array.isArray(existing.sessions) ? existing.sessions : [];
+            const filteredSessions = existingSessions.filter(
+              (s: any) => s["Ngày"] !== sessionDate
+            );
+            
+            if (filteredSessions.length !== existingSessions.length) {
+              // Session đã bị xóa
+              if (filteredSessions.length === 0) {
+                // Xóa invoice hoàn toàn nếu không còn session nào
+                const invoiceRef = ref(database, `datasheet/Phiếu_thu_học_phí/${key}`);
+                upsertPromises.push(remove(invoiceRef));
+              } else {
+                // Cập nhật invoice với số buổi mới
+                const newTotalAmount = pricePerSession * filteredSessions.length;
+                const updatedInvoice = {
+                  ...existing,
+                  totalSessions: filteredSessions.length,
+                  totalAmount: newTotalAmount,
+                  finalAmount: Math.max(0, newTotalAmount - (existing.discount || 0)),
+                  sessions: filteredSessions,
+                };
+                const invoiceRef = ref(database, `datasheet/Phiếu_thu_học_phí/${key}`);
+                upsertPromises.push(update(invoiceRef, updatedInvoice));
+              }
+            }
+          }
         }
       });
 
@@ -272,6 +363,122 @@ const AttendanceSessionPage = () => {
       });
     } catch (error) {
       console.error("[InvoiceSync] Failed to sync invoices", error);
+    }
+  };
+
+  // Sync monthly reports when attendance changes
+  // This updates the stats in Nhận_xét_tháng for affected students
+  const syncMonthlyReportsForSession = async (
+    targetMonth: number, // 0-based
+    targetYear: number,
+    classId: string,
+    className: string,
+    affectedStudentIds: string[]
+  ) => {
+    if (affectedStudentIds.length === 0) return;
+
+    try {
+      const monthStr = `${targetYear}-${String(targetMonth + 1).padStart(2, "0")}`;
+      
+      // Get all monthly reports for this month
+      const reportsSnapshot = await new Promise<any>((resolve) => {
+        const reportsRef = ref(database, "datasheet/Nhận_xét_tháng");
+        onValue(reportsRef, (snapshot) => resolve(snapshot.val()), { onlyOnce: true });
+      });
+
+      if (!reportsSnapshot) return;
+
+      // Get all attendance sessions for recalculation
+      const sessionsSnapshot = await new Promise<any>((resolve) => {
+        const sessionsRef = ref(database, "datasheet/Điểm_danh_sessions");
+        onValue(sessionsRef, (snapshot) => resolve(snapshot.val()), { onlyOnce: true });
+      });
+
+      const allSessions = sessionsSnapshot ? Object.entries(sessionsSnapshot).map(([id, value]: [string, any]) => ({
+        id,
+        ...value,
+      })) : [];
+
+      // Filter sessions for this month and class
+      const monthSessions = allSessions.filter((s: any) => {
+        const sessionDate = dayjs(s["Ngày"]);
+        return sessionDate.month() === targetMonth && 
+               sessionDate.year() === targetYear &&
+               s["Class ID"] === classId;
+      });
+
+      const updatePromises: Promise<void>[] = [];
+
+      // Find and update reports for affected students
+      Object.entries(reportsSnapshot).forEach(([reportId, report]: [string, any]) => {
+        if (report.month !== monthStr) return;
+        if (!affectedStudentIds.includes(report.studentId)) return;
+        if (report.status === "approved") return; // Don't modify approved reports
+
+        // Check if this report includes this class
+        if (!report.classIds?.includes(classId)) return;
+
+        // Recalculate stats for this student in this class
+        let totalSessions = 0;
+        let presentSessions = 0;
+        let absentSessions = 0;
+
+        monthSessions.forEach((session: any) => {
+          const record = session["Điểm danh"]?.find((r: any) => r["Student ID"] === report.studentId);
+          if (record) {
+            totalSessions++;
+            if (record["Có mặt"] === true || record["Vắng có phép"] === true) {
+              presentSessions++;
+            } else {
+              absentSessions++;
+            }
+          }
+        });
+
+        // Find and update the classStats for this class
+        const updatedClassStats = (report.stats?.classStats || []).map((cs: any) => {
+          if (cs.classId === classId) {
+            return {
+              ...cs,
+              totalSessions,
+              presentSessions,
+              absentSessions,
+              attendanceRate: totalSessions > 0 ? Math.round((presentSessions / totalSessions) * 100) : 0,
+            };
+          }
+          return cs;
+        });
+
+        // Recalculate total stats
+        const newTotalSessions = updatedClassStats.reduce((sum: number, cs: any) => sum + (cs.totalSessions || 0), 0);
+        const newPresentSessions = updatedClassStats.reduce((sum: number, cs: any) => sum + (cs.presentSessions || 0), 0);
+        const newAbsentSessions = updatedClassStats.reduce((sum: number, cs: any) => sum + (cs.absentSessions || 0), 0);
+
+        const updatedStats = {
+          ...report.stats,
+          totalSessions: newTotalSessions,
+          presentSessions: newPresentSessions,
+          absentSessions: newAbsentSessions,
+          attendanceRate: newTotalSessions > 0 ? Math.round((newPresentSessions / newTotalSessions) * 100) : 0,
+          classStats: updatedClassStats,
+        };
+
+        const reportRef = ref(database, `datasheet/Nhận_xét_tháng/${reportId}`);
+        updatePromises.push(update(reportRef, {
+          stats: updatedStats,
+          updatedAt: new Date().toISOString(),
+        }));
+      });
+
+      await Promise.all(updatePromises);
+      console.log("[ReportSync] Synced monthly reports", {
+        classId,
+        month: monthStr,
+        affectedStudents: affectedStudentIds.length,
+        reportsUpdated: updatePromises.length,
+      });
+    } catch (error) {
+      console.error("[ReportSync] Failed to sync monthly reports", error);
     }
   };
 
@@ -1311,6 +1518,16 @@ const AttendanceSessionPage = () => {
           sessionDateObj.getFullYear(),
           classData.id,
           attendanceRecords
+        );
+        
+        // Sync monthly reports for affected students
+        const affectedStudentIds = attendanceRecords.map(r => r["Student ID"]).filter(Boolean) as string[];
+        await syncMonthlyReportsForSession(
+          sessionDateObj.getMonth(),
+          sessionDateObj.getFullYear(),
+          classData.id,
+          classData["Tên lớp"],
+          affectedStudentIds
         );
       } else {
         console.warn("[InvoiceSync] sessionDate is invalid, skipped invoice sync", sessionDate);

@@ -2424,12 +2424,151 @@ const AdminSchedule = () => {
                             const s = session as any;
                             if (s["Class ID"] === editingStaffSchedule?.["Class ID"] &&
                               s["Ngày"] === editingStaffSchedule?.["Ngày"]) {
+                              
+                              // Đồng bộ xóa invoice cho từng học sinh
+                              const attendanceRecords = s["Điểm danh"] || [];
+                              const sessionDate = s["Ngày"];
+                              const classId = s["Class ID"];
+                              const sessionDateObj = new Date(sessionDate);
+                              const targetMonth = sessionDateObj.getMonth();
+                              const targetYear = sessionDateObj.getFullYear();
+
+                              for (const record of attendanceRecords) {
+                                const studentId = record["Student ID"];
+                                if (!studentId) continue;
+
+                                // Key format mới
+                                const invoiceKey = `${studentId}-${classId}-${targetMonth}-${targetYear}`;
+                                const invoiceRef = ref(database, `datasheet/Phiếu_thu_học_phí/${invoiceKey}`);
+                                const invoiceSnapshot = await get(invoiceRef);
+                                if (invoiceSnapshot.exists()) {
+                                  const invoiceData = invoiceSnapshot.val();
+                                  if (invoiceData.status !== "paid") {
+                                    const invoiceSessions = Array.isArray(invoiceData.sessions) ? invoiceData.sessions : [];
+                                    const filteredSessions = invoiceSessions.filter((is: any) => is["Ngày"] !== sessionDate);
+                                    if (filteredSessions.length === 0) {
+                                      await remove(invoiceRef);
+                                    } else {
+                                      const pricePerSession = (invoiceData.totalAmount || 0) / (invoiceSessions.length || 1);
+                                      await update(invoiceRef, {
+                                        sessions: filteredSessions,
+                                        totalSessions: filteredSessions.length,
+                                        totalAmount: pricePerSession * filteredSessions.length,
+                                        finalAmount: Math.max(0, pricePerSession * filteredSessions.length - (invoiceData.discount || 0)),
+                                      });
+                                    }
+                                  }
+                                }
+                                
+                                // Key format cũ
+                                const oldInvoiceKey = `${studentId}-${targetMonth}-${targetYear}`;
+                                const oldInvoiceRef = ref(database, `datasheet/Phiếu_thu_học_phí/${oldInvoiceKey}`);
+                                const oldInvoiceSnapshot = await get(oldInvoiceRef);
+                                if (oldInvoiceSnapshot.exists()) {
+                                  const invoiceData = oldInvoiceSnapshot.val();
+                                  if (invoiceData.status !== "paid") {
+                                    const invoiceSessions = Array.isArray(invoiceData.sessions) ? invoiceData.sessions : [];
+                                    const filteredSessions = invoiceSessions.filter((is: any) => !(is["Ngày"] === sessionDate && is["Class ID"] === classId));
+                                    if (filteredSessions.length === 0) {
+                                      await remove(oldInvoiceRef);
+                                    } else {
+                                      const pricePerSession = (invoiceData.totalAmount || 0) / (invoiceSessions.length || 1);
+                                      await update(oldInvoiceRef, {
+                                        sessions: filteredSessions,
+                                        totalSessions: filteredSessions.length,
+                                        totalAmount: pricePerSession * filteredSessions.length,
+                                        finalAmount: Math.max(0, pricePerSession * filteredSessions.length - (invoiceData.discount || 0)),
+                                      });
+                                    }
+                                  }
+                                }
+                              }
+                              
                               await remove(ref(database, `datasheet/Điểm_danh_sessions/${sessionId}`));
+                              
+                              // Sync monthly reports for affected students
+                              const affectedStudentIds = attendanceRecords.map((r: any) => r["Student ID"]).filter(Boolean) as string[];
+                              if (affectedStudentIds.length > 0) {
+                                // Get all monthly reports
+                                const reportsRef = ref(database, "datasheet/Nhận_xét_tháng");
+                                const reportsSnapshot = await get(reportsRef);
+                                if (reportsSnapshot.exists()) {
+                                  const reportsData = reportsSnapshot.val();
+                                  const monthStr = `${targetYear}-${String(targetMonth + 1).padStart(2, "0")}`;
+
+                                  // Get remaining sessions for this month and class
+                                  const remainingSessionsSnapshot = await get(sessionsRef);
+                                  const remainingSessions = remainingSessionsSnapshot.exists() 
+                                    ? Object.entries(remainingSessionsSnapshot.val())
+                                        .map(([id, v]: [string, any]) => ({ id, ...v }))
+                                        .filter((ses: any) => {
+                                          const sDate = dayjs(ses["Ngày"]);
+                                          return sDate.month() === targetMonth &&
+                                                 sDate.year() === targetYear &&
+                                                 ses["Class ID"] === classId;
+                                        })
+                                    : [];
+
+                                  for (const [reportId, report] of Object.entries(reportsData) as [string, any][]) {
+                                    if (report.month !== monthStr) continue;
+                                    if (!affectedStudentIds.includes(report.studentId)) continue;
+                                    if (report.status === "approved") continue;
+                                    if (!report.classIds?.includes(classId)) continue;
+
+                                    // Recalculate stats
+                                    let totalSessions = 0;
+                                    let presentSessions = 0;
+                                    let absentSessions = 0;
+
+                                    remainingSessions.forEach((session: any) => {
+                                      const rec = session["Điểm danh"]?.find((r: any) => r["Student ID"] === report.studentId);
+                                      if (rec) {
+                                        totalSessions++;
+                                        if (rec["Có mặt"] === true || rec["Vắng có phép"] === true) {
+                                          presentSessions++;
+                                        } else {
+                                          absentSessions++;
+                                        }
+                                      }
+                                    });
+
+                                    const updatedClassStats = (report.stats?.classStats || []).map((cs: any) => {
+                                      if (cs.classId === classId) {
+                                        return {
+                                          ...cs,
+                                          totalSessions,
+                                          presentSessions,
+                                          absentSessions,
+                                          attendanceRate: totalSessions > 0 ? Math.round((presentSessions / totalSessions) * 100) : 0,
+                                        };
+                                      }
+                                      return cs;
+                                    });
+
+                                    const newTotal = updatedClassStats.reduce((sum: number, cs: any) => sum + (cs.totalSessions || 0), 0);
+                                    const newPresent = updatedClassStats.reduce((sum: number, cs: any) => sum + (cs.presentSessions || 0), 0);
+                                    const newAbsent = updatedClassStats.reduce((sum: number, cs: any) => sum + (cs.absentSessions || 0), 0);
+
+                                    await update(ref(database, `datasheet/Nhận_xét_tháng/${reportId}`), {
+                                      stats: {
+                                        ...report.stats,
+                                        totalSessions: newTotal,
+                                        presentSessions: newPresent,
+                                        absentSessions: newAbsent,
+                                        attendanceRate: newTotal > 0 ? Math.round((newPresent / newTotal) * 100) : 0,
+                                        classStats: updatedClassStats,
+                                      },
+                                      updatedAt: new Date().toISOString(),
+                                    });
+                                  }
+                                }
+                              }
+                              
                               break;
                             }
                           }
                         }
-                        message.success("Đã xóa lịch học");
+                        message.success("Đã xóa lịch học và cập nhật hóa đơn");
                         setIsStaffScheduleModalOpen(false);
                         setEditingStaffSchedule(null);
                         staffScheduleForm.resetFields();
