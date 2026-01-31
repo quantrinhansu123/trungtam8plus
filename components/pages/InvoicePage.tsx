@@ -2107,41 +2107,47 @@ const InvoicePage = () => {
               thead { background-color: var(--primary-navy); color: white; }
               th { padding: 8px 5px; text-align: left; font-weight: 600; text-transform: uppercase; font-size: 9px; border-right: 1px solid rgba(255,255,255,0.2); }
               th:last-child { border-right: none; }
-              td { padding: 6px 5px; border-bottom: 1px solid var(--border-color); border-right: 1px solid var(--border-color); color: #000 !important; font-weight: 900 !important; vertical-align: middle; }
+              td { padding: 6px 5px; border-bottom: 1px solid var(--border-color); border-right: 1px solid var(--border-color); color: #000 !important; font-weight: 500 !important; vertical-align: middle; }
               td:last-child { border-right: none; }
               tr:last-child td { border-bottom: none; }
               tr:nth-child(even) { background-color: #f9f9f9; }
               .row-icon { color: var(--primary-navy); margin-right: 3px; opacity: 0.7; font-size: 10px; }
               .text-right { text-align: right; } .text-center { text-align: center; }
-              .text-red { color: var(--accent-red) !important; font-weight: 900 !important; }
-              .text-orange { color: #d35400 !important; font-weight: 900 !important; }
-              .total-row-highlight { font-size: 12px; font-weight: 900 !important; color: var(--accent-red) !important; text-transform: uppercase; }
+              .text-red { color: var(--accent-red) !important; font-weight: 600 !important; }
+              .text-orange { color: #d35400 !important; font-weight: 600 !important; }
+              .total-row-highlight { font-size: 12px; font-weight: 700 !important; color: var(--accent-red) !important; text-transform: uppercase; }
       
               /* --- FOOTER --- */
               .bottom-layout { display: flex; gap: 15px; margin-top: auto; padding-bottom: 0px; align-items: flex-start; }
               
               .debt-container { flex: 1; background: white; border: 1px solid var(--primary-navy); border-radius: 8px; overflow: hidden; }
-              .debt-header { background: var(--primary-navy); color: white; padding: 5px 10px; font-size: 10px; font-weight: 700; text-transform: uppercase; display: flex; align-items: center; gap: 5px; }
+              .debt-header { background: var(--primary-navy); color: white; padding: 5px 10px; font-size: 10px; font-weight: 600; text-transform: uppercase; display: flex; align-items: center; gap: 5px; }
               .debt-table { width: 100%; font-size: 9px; border-collapse: collapse; }
-              .debt-table th { background: #f0f4f8; color: var(--primary-navy); padding: 5px; border-bottom: 1px solid #ddd; border-right: 1px solid #eee; text-align: center; }
-              .debt-table td { padding: 5px; border-bottom: 1px solid #eee; border-right: 1px solid #eee; text-align: center; color: #333; }
+              .debt-table th { background: #f0f4f8; color: var(--primary-navy); padding: 5px; border-bottom: 1px solid #ddd; border-right: 1px solid #eee; text-align: center; font-weight: 600; }
+              .debt-table td { padding: 5px; border-bottom: 1px solid #eee; border-right: 1px solid #eee; text-align: center; color: #333; font-weight: 500; }
               
               .payment-column { width: 150px; display: flex; flex-direction: column; gap: 10px; }
               .grand-total-box { background: var(--primary-navy); color: white; padding: 10px; border-radius: 8px; text-align: center; box-shadow: 0 4px 8px rgba(0,0,0,0.15); }
               .grand-total-label { font-size: 9px; text-transform: uppercase; opacity: 0.9; margin-bottom: 2px; line-height: 1.2; }
-              .grand-total-val { font-size: 18px; font-weight: 800; color: var(--accent-yellow); line-height: 1.1; }
+              .grand-total-val { font-size: 18px; font-weight: 700; color: var(--accent-yellow); line-height: 1.1; }
       
               .qr-block-stack { background: white; border: 1px solid #ddd; border-radius: 8px; padding: 5px; text-align: center; }
               .qr-placeholder-stack { width: 100%; aspect-ratio: 1/1; background: white; display: flex; align-items: center; justify-content: center; cursor: pointer; border-radius: 4px; overflow: hidden; margin-bottom: 5px; }
               .qr-img { width: 100%; height: 100%; object-fit: cover; }
-              .qr-note { font-size: 9px; color: #555; line-height: 1.3; font-weight: 600; word-break: break-word; }
+              .qr-note { font-size: 9px; color: #555; line-height: 1.3; font-weight: 500; word-break: break-word; }
               [contenteditable]:hover { background: rgba(255, 215, 0, 0.1); outline: none; border-radius: 2px;}
               [contenteditable]:focus { background: #fff; outline: 1px solid var(--primary-navy); }
-      
+
+              /* --- PRINT A5 SIZE --- */
+              @page {
+                  size: A5 portrait;
+                  margin: 5mm;
+              }
+
               @media print {
                   .invoice-body { background: white; padding: 0; gap: 0; display: block; }
                   .toolbar { display: none !important; }
-                  .page { box-shadow: none; width: 100%; height: 100%; margin: 0; border: none; page-break-after: always; }
+                  .page { box-shadow: none; width: 100%; height: auto; min-height: auto; margin: 0; border: none; padding: 8px; page-break-inside: avoid; }
                   * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
               }
           </style>
