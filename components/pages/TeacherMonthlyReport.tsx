@@ -31,6 +31,7 @@ import {
   DownOutlined,
   WarningOutlined,
   BugOutlined,
+  EyeOutlined,
 } from "@ant-design/icons";
 import { ref, onValue, update, push } from "firebase/database";
 import { database } from "../../firebase";
@@ -40,6 +41,7 @@ import { generateStudentComment, StudentReportData } from "../../utils/geminiSer
 import TeacherCommentEditModal from "../TeacherCommentEditModal";
 import WrapperContent from "../WrapperContent";
 import dayjs from "dayjs";
+import { useNavigate } from "react-router-dom";
 
 const { Text } = Typography;
 const { Panel } = Collapse;
@@ -76,6 +78,7 @@ interface StudentReportRow {
 
 const TeacherMonthlyReport = () => {
   const { userProfile } = useAuth();
+  const navigate = useNavigate();
   const [classes, setClasses] = useState<Class[]>([]);
   const [selectedMonth, setSelectedMonth] = useState<dayjs.Dayjs>(dayjs().subtract(1, 'month')); // Mặc định tháng trước
   const [students, setStudents] = useState<Student[]>([]);
@@ -319,8 +322,23 @@ const TeacherMonthlyReport = () => {
           }
         });
 
-        // Get scores from Điểm_tự_nhập instead of sessions
-        const clsScores = getCustomScoresForClass(studentId, cls.id, monthStr);
+        // Lấy điểm từ attendance sessions ("Điểm kiểm tra" hoặc "Điểm")
+        const attendanceScores: number[] = [];
+        classSessions.forEach((session) => {
+          const record = session["Điểm danh"]?.find((r) => r["Student ID"] === studentId);
+          if (record) {
+            const scoreValue = record["Điểm kiểm tra"] ?? record["Điểm"];
+            if (scoreValue !== undefined && scoreValue !== null && scoreValue !== "" && !isNaN(Number(scoreValue))) {
+              attendanceScores.push(Number(scoreValue));
+            }
+          }
+        });
+
+        // Lấy điểm từ Điểm_tự_nhập (điểm giáo viên tự nhập)
+        const customScores = getCustomScoresForClass(studentId, cls.id, monthStr);
+        
+        // Kết hợp cả hai nguồn điểm (ưu tiên hiển thị tất cả)
+        const clsScores = [...attendanceScores, ...customScores];
         allScores = allScores.concat(clsScores);
 
         const clsAbsent = clsTotal - clsPresent;
@@ -632,7 +650,9 @@ const TeacherMonthlyReport = () => {
 
     try {
       for (const row of reportData) {
-        if (!row.finalComment && !row.aiComment) continue;
+        // Kiểm tra có nhận xét cho ít nhất 1 lớp không (ưu tiên hơn finalComment/aiComment)
+        const hasClassComment = row.classStats.some(cs => cs.comment && cs.comment.trim());
+        if (!hasClassComment && !row.finalComment && !row.aiComment) continue;
         if (!canEdit(row.status)) continue;
 
         const stats: MonthlyReportStats = {
@@ -984,9 +1004,18 @@ const TeacherMonthlyReport = () => {
       width: 280,
       render: (_: any, record: StudentReportRow) => (
         <div>
-          {/* Tên học sinh */}
+          {/* Tên học sinh với link xem chi tiết */}
           <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>
             {record.studentName}
+            <Tooltip title="Xem chi tiết điểm tháng này">
+              <Button
+                type="link"
+                size="small"
+                icon={<EyeOutlined />}
+                onClick={() => navigate(`/workspace/student-report/${record.studentId}?month=${selectedMonth.format("YYYY-MM")}`)}
+                style={{ marginLeft: 4, padding: 0 }}
+              />
+            </Tooltip>
           </div>
           {record.studentCode && (
             <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 8 }}>

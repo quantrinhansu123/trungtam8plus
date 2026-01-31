@@ -2569,6 +2569,7 @@ const StudentListView: React.FC = () => {
                         student={record.student}
                         type="link"
                         size="small"
+                        initialMonth={selectedMonth}
                       />
                     </Space>
                   ),

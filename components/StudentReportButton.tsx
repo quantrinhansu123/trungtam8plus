@@ -5,6 +5,7 @@ import { ref, onValue } from 'firebase/database';
 import { database } from '../firebase';
 import { AttendanceSession } from '../types';
 import StudentReport from './StudentReport';
+import dayjs from 'dayjs';
 
 interface StudentReportButtonProps {
     student: {
@@ -19,9 +20,10 @@ interface StudentReportButtonProps {
     };
     type?: 'default' | 'primary' | 'link';
     size?: 'small' | 'middle' | 'large';
+    initialMonth?: dayjs.Dayjs | null;
 }
 
-const StudentReportButton = ({ student, type = 'default', size = 'middle' }: StudentReportButtonProps) => {
+const StudentReportButton = ({ student, type = 'default', size = 'middle', initialMonth }: StudentReportButtonProps) => {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [sessions, setSessions] = useState<AttendanceSession[]>([]);
     const [loading, setLoading] = useState(false);
@@ -65,6 +67,7 @@ const StudentReportButton = ({ student, type = 'default', size = 'middle' }: Stu
                 onClose={() => setIsModalOpen(false)}
                 student={student}
                 sessions={sessions}
+                initialMonth={initialMonth}
             />
         </>
     );

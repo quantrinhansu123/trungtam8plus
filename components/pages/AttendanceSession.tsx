@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   Card,
   Table,
@@ -86,6 +86,9 @@ const AttendanceSessionPage = () => {
   const [editRedeemForm] = Form.useForm();
   const [customSchedule, setCustomSchedule] = useState<TimetableEntry | null>(null);
   const [isEditingMode, setIsEditingMode] = useState(false); // Chế độ sửa điểm danh sau khi hoàn thành
+  
+  // State lưu báo cáo tháng đã submitted/approved của các học sinh trong session này
+  const [monthlyReportsForSession, setMonthlyReportsForSession] = useState<any[]>([]);
   
   // Bug 8: State cho tài liệu đính kèm bài tập
   const [homeworkAttachments, setHomeworkAttachments] = useState<Array<{
@@ -503,6 +506,34 @@ const AttendanceSessionPage = () => {
     return () => unsubscribe();
   }, [classData?.id, sessionDate]);
 
+  // Fetch báo cáo tháng để kiểm tra xem có báo cáo submitted/approved cho tháng của session này không
+  useEffect(() => {
+    if (!sessionDate || !classData?.id) return;
+
+    const sessionMonth = dayjs(sessionDate).format("YYYY-MM");
+    const reportsRef = ref(database, "datasheet/Nhận_xét_tháng");
+    
+    const unsubscribe = onValue(reportsRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        // Lọc các báo cáo của tháng này, cho lớp này, có status submitted hoặc approved
+        const relevantReports = Object.entries(data)
+          .filter(([, report]: [string, any]) => {
+            return report.month === sessionMonth &&
+                   report.classIds?.includes(classData.id) &&
+                   (report.status === "submitted" || report.status === "approved");
+          })
+          .map(([id, report]: [string, any]) => ({ id, ...report }));
+        
+        setMonthlyReportsForSession(relevantReports);
+      } else {
+        setMonthlyReportsForSession([]);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [sessionDate, classData?.id]);
+
   useEffect(() => {
     if (!classData) {
       message.error("Không tìm thấy thông tin lớp học");
@@ -773,8 +804,16 @@ const AttendanceSessionPage = () => {
     }
   }, [students, existingSession, attendanceRecords.length]);
 
-  // Chế độ chỉ đọc: session đã hoàn thành và chưa bật chế độ sửa
-  const isReadOnly = !!(existingSession && existingSession["Trạng thái"] === "completed" && !isEditingMode);
+  // Kiểm tra xem đã quá deadline sửa điểm danh chưa
+  // Deadline MỚI: Khi đã có báo cáo tháng (submitted/approved) cho lớp này trong tháng của buổi điểm danh
+  const isPassedEditDeadline = useMemo(() => {
+    // Nếu có bất kỳ báo cáo tháng nào đã submitted hoặc approved cho lớp này trong tháng của session
+    // thì không cho phép sửa điểm danh nữa
+    return monthlyReportsForSession.length > 0;
+  }, [monthlyReportsForSession]);
+
+  // Chế độ chỉ đọc: session đã hoàn thành và (chưa bật chế độ sửa HOẶC đã có báo cáo tháng submitted/approved)
+  const isReadOnly = !!(existingSession && existingSession["Trạng thái"] === "completed" && (!isEditingMode || isPassedEditDeadline));
 
   const handleAttendanceChange = (studentId: string, present: boolean) => {
     setAttendanceRecords((prev) =>
@@ -2100,7 +2139,25 @@ const AttendanceSessionPage = () => {
 
   return (
     <WrapperContent title="Điểm danh" isLoading={loadingSession}>
-      {existingSession && !isEditingMode && (
+      {/* Thông báo đã khóa sửa điểm danh do có báo cáo tháng đã gửi/duyệt */}
+      {existingSession && isPassedEditDeadline && (
+        <Card
+          style={{
+            marginBottom: 16,
+            backgroundColor: "#fff1f0",
+            borderColor: "#ffa39e",
+          }}
+          size="small"
+        >
+          <p style={{ margin: 0, color: "#cf1322" }}>
+            🔒 <strong>Đã khóa sửa điểm danh!</strong> Tháng {dayjs(sessionDate).format("MM/YYYY")} đã có báo cáo được gửi hoặc duyệt ({monthlyReportsForSession.length} báo cáo).
+            Để sửa điểm danh, cần xóa duyệt hoặc hủy gửi báo cáo tháng trước.
+          </p>
+        </Card>
+      )}
+
+      {/* Thông báo còn có thể sửa điểm danh */}
+      {existingSession && !isEditingMode && !isPassedEditDeadline && (
         <Card
           style={{
             marginBottom: 16,
@@ -2110,7 +2167,7 @@ const AttendanceSessionPage = () => {
           size="small"
         >
           <p style={{ margin: 0 }}>
-            ✅ Buổi học này đã hoàn thành điểm danh. Bạn có thể sửa điểm danh nếu cần.
+            ✅ Buổi học này đã hoàn thành điểm danh. Có thể chỉnh sửa cho đến khi báo cáo tháng được gửi hoặc duyệt.
           </p>
         </Card>
       )}
@@ -2566,7 +2623,7 @@ const AttendanceSessionPage = () => {
                   }
                   setCurrentStep(0);
                 }}>Quay lại</Button>
-                {existingSession && !isEditingMode && (
+                {existingSession && !isEditingMode && !isPassedEditDeadline && (
                   <Button
                     type="default"
                     icon={<EditOutlined />}
@@ -2575,7 +2632,7 @@ const AttendanceSessionPage = () => {
                     Sửa điểm danh
                   </Button>
                 )}
-                {existingSession && isEditingMode ? (
+                {existingSession && isEditingMode && !isPassedEditDeadline ? (
                   <Button
                     type="primary"
                     icon={<SaveOutlined />}

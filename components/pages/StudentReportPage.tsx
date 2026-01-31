@@ -1,5 +1,5 @@
-import { useEffect, useState, useRef } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useEffect, useState, useRef, useMemo } from "react";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import {
   Button,
   Card,
@@ -18,6 +18,8 @@ import {
   Modal,
   Form,
   InputNumber,
+  Typography,
+  Select,
 } from "antd";
 import {
   ArrowLeftOutlined,
@@ -29,6 +31,7 @@ import {
   FilterOutlined,
   DownloadOutlined,
   GiftOutlined,
+  CalendarOutlined,
 } from "@ant-design/icons";
 import { ref, onValue } from "firebase/database";
 import { database } from "../../firebase";
@@ -53,9 +56,12 @@ interface Student {
   [key: string]: any;
 }
 
+const { Text } = Typography;
+
 const StudentReportPage = () => {
   const { studentId } = useParams<{ studentId: string }>();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const printRef = useRef<HTMLDivElement>(null);
 
   const [student, setStudent] = useState<Student | null>(null);
@@ -63,7 +69,11 @@ const StudentReportPage = () => {
   const [classes, setClasses] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   
-  // Filters
+  // Filters - Lấy tháng từ URL query param nếu có (để đồng bộ với Báo cáo tháng)
+  const monthFromUrl = searchParams.get("month"); // Format: YYYY-MM
+  const [selectedMonth, setSelectedMonth] = useState<dayjs.Dayjs | null>(
+    monthFromUrl ? dayjs(monthFromUrl, "YYYY-MM") : null
+  );
   const [dateFilter, setDateFilter] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null] | null>(null);
   const [scoreNameFilter, setScoreNameFilter] = useState<string>("");
   
@@ -196,6 +206,14 @@ const StudentReportPage = () => {
 
   // Filter sessions
   const filteredSessions = studentSessions.filter((session) => {
+    // Month filter (ưu tiên cao nhất - dùng cho đồng bộ với Báo cáo tháng)
+    if (selectedMonth) {
+      const sessionDate = dayjs(session["Ngày"]);
+      if (sessionDate.format("YYYY-MM") !== selectedMonth.format("YYYY-MM")) {
+        return false;
+      }
+    }
+    
     // Date filter
     if (dateFilter && dateFilter[0] && dateFilter[1]) {
       const sessionDate = dayjs(session["Ngày"]);
@@ -593,6 +611,72 @@ const StudentReportPage = () => {
         }
       `}</style>
       <div style={{ padding: "24px", maxWidth: "1200px", margin: "0 auto" }}>
+        {/* Filter Controls - Month filter for syncing with Monthly Report */}
+        <Card size="small" style={{ marginBottom: 16 }} className="no-print">
+          <Row gutter={16} align="middle">
+            <Col xs={24} sm={8} md={6}>
+              <Space direction="vertical" style={{ width: "100%" }} size={0}>
+                <Text strong style={{ fontSize: 12 }}>
+                  <CalendarOutlined /> Lọc theo tháng:
+                </Text>
+                <DatePicker
+                  picker="month"
+                  style={{ width: "100%" }}
+                  value={selectedMonth}
+                  onChange={(date) => {
+                    setSelectedMonth(date);
+                    // Cập nhật URL query param
+                    if (date) {
+                      setSearchParams({ month: date.format("YYYY-MM") });
+                    } else {
+                      searchParams.delete("month");
+                      setSearchParams(searchParams);
+                    }
+                  }}
+                  format="MM/YYYY"
+                  placeholder="Chọn tháng..."
+                  allowClear
+                />
+              </Space>
+            </Col>
+            <Col xs={24} sm={8} md={6}>
+              <Space direction="vertical" style={{ width: "100%" }} size={0}>
+                <Text strong style={{ fontSize: 12 }}>
+                  <FilterOutlined /> Lọc theo ngày:
+                </Text>
+                <DatePicker.RangePicker
+                  style={{ width: "100%" }}
+                  value={dateFilter}
+                  onChange={(dates) => setDateFilter(dates as any)}
+                  format="DD/MM/YYYY"
+                  placeholder={["Từ ngày", "Đến ngày"]}
+                  allowClear
+                  disabled={!!selectedMonth} // Disable when month filter is active
+                />
+              </Space>
+            </Col>
+            <Col xs={24} sm={8} md={6}>
+              <Space direction="vertical" style={{ width: "100%" }} size={0}>
+                <Text strong style={{ fontSize: 12 }}>Lọc theo tên điểm:</Text>
+                <Input
+                  placeholder="Tìm kiếm..."
+                  value={scoreNameFilter}
+                  onChange={(e) => setScoreNameFilter(e.target.value)}
+                  allowClear
+                />
+              </Space>
+            </Col>
+            <Col xs={24} sm={24} md={6}>
+              {selectedMonth && (
+                <Tag color="blue" style={{ marginTop: 18 }}>
+                  Đang xem: Tháng {selectedMonth.format("MM/YYYY")} 
+                  ({filteredSessions.length} buổi)
+                </Tag>
+              )}
+            </Col>
+          </Row>
+        </Card>
+
         {/* Action Buttons */}
       <div
         className="no-print"

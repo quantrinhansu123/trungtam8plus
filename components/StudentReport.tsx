@@ -45,6 +45,7 @@ interface StudentReportProps {
   };
   sessions: AttendanceSession[];
   teacherName?: string;
+  initialMonth?: dayjs.Dayjs | null;
 }
 
 const StudentReport = ({
@@ -53,12 +54,20 @@ const StudentReport = ({
   student,
   sessions,
   teacherName,
+  initialMonth,
 }: StudentReportProps) => {
   const printRef = useRef<HTMLDivElement>(null);
   const { getStudentStats } = useAttendanceStats();
   const [viewMode, setViewMode] = useState<"session" | "monthly">("session");
-  const [selectedMonth, setSelectedMonth] = useState<dayjs.Dayjs | null>(dayjs());
+  const [selectedMonth, setSelectedMonth] = useState<dayjs.Dayjs | null>(initialMonth ?? dayjs());
   const [monthlyComments, setMonthlyComments] = useState<MonthlyComment[]>([]);
+
+  // Update selectedMonth when initialMonth changes
+  useEffect(() => {
+    if (initialMonth) {
+      setSelectedMonth(initialMonth);
+    }
+  }, [initialMonth]);
   const [customScoresData, setCustomScoresData] = useState<{ [classId: string]: any }>({});
   const [classes, setClasses] = useState<any[]>([]);
 
@@ -153,6 +162,61 @@ const StudentReport = ({
     });
 
     return scores;
+  };
+
+  // Helper function to get scores from attendance sessions (Điểm kiểm tra)
+  const getScoresFromAttendance = (studentId: string) => {
+    const scores: Array<{
+      classId: string;
+      className: string;
+      testName: string;
+      date: string;
+      score: number;
+    }> = [];
+
+    sessions.forEach((session) => {
+      const record = session["Điểm danh"]?.find((r) => r["Student ID"] === studentId);
+      if (record) {
+        const scoreValue = record["Điểm kiểm tra"] ?? record["Điểm"];
+        if (scoreValue !== undefined && scoreValue !== null && !isNaN(Number(scoreValue))) {
+          const classInfo = classes.find((c) => c.id === session["Class ID"]);
+          const className = classInfo?.["Tên lớp"] || session["Tên lớp"] || session["Class ID"];
+          scores.push({
+            classId: session["Class ID"],
+            className,
+            testName: "Điểm buổi học",
+            date: session["Ngày"],
+            score: Number(scoreValue),
+          });
+        }
+      }
+    });
+
+    return scores;
+  };
+
+  // Combined function to get all scores from both sources
+  const getAllScoresForStudent = (studentId: string) => {
+    const customScores = getCustomScoresForStudent(studentId);
+    const attendanceScores = getScoresFromAttendance(studentId);
+    
+    // Merge: ưu tiên điểm từ Điểm_tự_nhập, nếu không có thì lấy từ attendance
+    const mergedScores = [...customScores];
+    
+    attendanceScores.forEach((attScore) => {
+      // Kiểm tra xem đã có điểm cho ngày này và lớp này chưa
+      const exists = customScores.some(
+        (cs) => cs.date === attScore.date && cs.classId === attScore.classId
+      );
+      if (!exists) {
+        mergedScores.push({
+          ...attScore,
+          columnName: `Điểm buổi học (${dayjs(attScore.date).format("DD-MM-YYYY")})`,
+        });
+      }
+    });
+    
+    return mergedScores;
   };
 
   // Load monthly comments from Firebase
@@ -299,7 +363,7 @@ const StudentReport = ({
       render: (_: any, record: AttendanceSession) => {
         // Get scores from Điểm_tự_nhập for this date
         const sessionDate = dayjs(record["Ngày"]).format("DD/MM/YYYY");
-        const allCustomScores = getCustomScoresForStudent(student.id);
+        const allCustomScores = getAllScoresForStudent(student.id);
         const dateScores = allCustomScores.filter((s) => {
           const scoreDate = dayjs(s.date).format("DD/MM/YYYY");
           return scoreDate === sessionDate && s.className?.includes(record["Tên lớp"]?.split(" - ")[0] || "");
@@ -317,7 +381,7 @@ const StudentReport = ({
       render: (_: any, record: AttendanceSession) => {
         // Get scores from Điểm_tự_nhập for this date
         const sessionDate = dayjs(record["Ngày"]).format("DD/MM/YYYY");
-        const allCustomScores = getCustomScoresForStudent(student.id);
+        const allCustomScores = getAllScoresForStudent(student.id);
         const dateScores = allCustomScores.filter((s) => {
           const scoreDate = dayjs(s.date).format("DD/MM/YYYY");
           return scoreDate === sessionDate && s.className?.includes(record["Tên lớp"]?.split(" - ")[0] || "");
@@ -335,7 +399,7 @@ const StudentReport = ({
       render: (_: any, record: AttendanceSession) => {
         // Get scores from Điểm_tự_nhập for this date  
         const sessionDate = dayjs(record["Ngày"]).format("DD/MM/YYYY");
-        const allCustomScores = getCustomScoresForStudent(student.id);
+        const allCustomScores = getAllScoresForStudent(student.id);
         const dateScores = allCustomScores.filter((s) => {
           const scoreDate = dayjs(s.date).format("DD/MM/YYYY");
           return scoreDate === sessionDate && s.className?.includes(record["Tên lớp"]?.split(" - ")[0] || "");
@@ -422,7 +486,7 @@ const StudentReport = ({
     });
 
     // Get scores from Điểm_tự_nhập (single source of truth) for selected month
-    const allCustomScores = getCustomScoresForStudent(student.id);
+    const allCustomScores = getAllScoresForStudent(student.id);
     const monthScores = selectedMonth
       ? allCustomScores.filter((s) => {
           if (!s.date) return false;
@@ -828,7 +892,7 @@ const StudentReport = ({
 
   const generateSessionPrintContent = () => {
     // Get all scores from Điểm_tự_nhập
-    const allCustomScores = getCustomScoresForStudent(student.id);
+    const allCustomScores = getAllScoresForStudent(student.id);
 
     // Get status text
     const getStatusText = (record: any) => {
@@ -1409,7 +1473,7 @@ const StudentReport = ({
     });
 
     // Get scores from Điểm_tự_nhập for selected month
-    const allCustomScores = getCustomScoresForStudent(student.id);
+    const allCustomScores = getAllScoresForStudent(student.id);
     const monthScoresFiltered = viewMode === "monthly" && selectedMonth
       ? allCustomScores.filter((s) => {
           if (!s.date) return false;
@@ -1811,84 +1875,143 @@ const StudentReport = ({
                 📋 Báo cáo theo buổi (Chi tiết)
               </Radio.Button>
             </Radio.Group>
+            
+            {/* Month Picker - always visible for filtering */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12 }}>
+              <span style={{ fontWeight: 500 }}>Chọn tháng:</span>
+              <DatePicker
+                picker="month"
+                value={selectedMonth}
+                onChange={(date) => setSelectedMonth(date)}
+                format="MM/YYYY"
+                allowClear={false}
+                style={{ width: 150 }}
+              />
+              <Button
+                size="small"
+                onClick={() => setSelectedMonth(dayjs())}
+              >
+                Tháng hiện tại
+              </Button>
+            </div>
           </Space>
         </Card>
 
         {/* Statistics */}
         <Card
-          title="Thống kê chuyên cần"
+          title={
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span>Thống kê chuyên cần</span>
+              <span style={{ fontSize: 12, fontWeight: 400, color: "#666" }}>
+                {selectedMonth ? selectedMonth.format("Tháng MM/YYYY") : "Tất cả"}
+              </span>
+            </div>
+          }
           size="small"
           style={{ marginBottom: 16 }}
         >
-          <Row gutter={16}>
-            <Col span={6}>
-              <Statistic
-                title="Tổng số buổi"
-                value={stats.totalSessions}
-                prefix={<ClockCircleOutlined />}
-              />
-            </Col>
-            <Col span={6}>
-              <Statistic
-                title="Số buổi có mặt"
-                value={stats.presentSessions}
-                valueStyle={{ color: "#3f8600" }}
-                prefix={<CheckCircleOutlined />}
-              />
-            </Col>
-            <Col span={6}>
-              <Statistic
-                title="Số buổi vắng"
-                value={stats.absentSessions}
-                valueStyle={{ color: "#cf1322" }}
-                prefix={<CloseCircleOutlined />}
-              />
-            </Col>
-            <Col span={6}>
-              <Statistic
-                title="Tỷ lệ tham gia"
-                value={attendanceRate}
-                suffix="%"
-                valueStyle={{
-                  color: attendanceRate >= 80 ? "#3f8600" : "#cf1322",
-                }}
-              />
-            </Col>
-            <Col span={6}>
-              <Statistic
-                title="Điểm trung bình"
-                value={(() => {
-                  const scores = studentSessions
-                    .map(
-                      (s) =>
-                        s["Điểm danh"]?.find(
-                          (r) => r["Student ID"] === student.id
-                        )?.["Điểm"]
-                    )
-                    .filter(
-                      (score) => score !== undefined && score !== null
-                    ) as number[];
-                  if (scores.length === 0) return 0;
+          {(() => {
+            // Filter sessions by selected month for statistics
+            const filteredSessions = selectedMonth
+              ? studentSessions.filter((session) => {
+                  const sessionDate = dayjs(session["Ngày"]);
                   return (
-                    scores.reduce((a, b) => a + b, 0) / scores.length
-                  ).toFixed(1);
-                })()}
-                suffix="/ 10"
-              />
-            </Col>
-          </Row>
+                    sessionDate.month() === selectedMonth.month() &&
+                    sessionDate.year() === selectedMonth.year()
+                  );
+                })
+              : studentSessions;
+
+            let presentCount = 0;
+            let absentCount = 0;
+            filteredSessions.forEach((session) => {
+              const record = session["Điểm danh"]?.find(
+                (r) => r["Student ID"] === student.id
+              );
+              if (record) {
+                if (record["Có mặt"]) {
+                  presentCount++;
+                } else {
+                  absentCount++;
+                }
+              }
+            });
+
+            // Calculate average score for selected month
+            const allScores = getAllScoresForStudent(student.id);
+            const monthScores = selectedMonth
+              ? allScores.filter((s) => {
+                  if (!s.date) return false;
+                  const scoreDate = dayjs(s.date);
+                  return (
+                    scoreDate.month() === selectedMonth.month() &&
+                    scoreDate.year() === selectedMonth.year()
+                  );
+                })
+              : allScores;
+            const avgScore = monthScores.length > 0
+              ? (monthScores.reduce((sum, s) => sum + s.score, 0) / monthScores.length).toFixed(1)
+              : "0";
+            const attendanceRate = filteredSessions.length > 0
+              ? Math.round((presentCount / filteredSessions.length) * 100)
+              : 0;
+
+            return (
+              <Row gutter={16}>
+                <Col span={4}>
+                  <Statistic
+                    title="Tổng số buổi"
+                    value={filteredSessions.length}
+                    prefix={<ClockCircleOutlined />}
+                  />
+                </Col>
+                <Col span={4}>
+                  <Statistic
+                    title="Số buổi có mặt"
+                    value={presentCount}
+                    valueStyle={{ color: "#3f8600" }}
+                    prefix={<CheckCircleOutlined />}
+                  />
+                </Col>
+                <Col span={4}>
+                  <Statistic
+                    title="Số buổi vắng"
+                    value={absentCount}
+                    valueStyle={{ color: "#cf1322" }}
+                    prefix={<CloseCircleOutlined />}
+                  />
+                </Col>
+                <Col span={6}>
+                  <Statistic
+                    title="Tỷ lệ tham gia"
+                    value={attendanceRate}
+                    suffix="%"
+                    valueStyle={{ color: attendanceRate >= 80 ? "#3f8600" : attendanceRate >= 50 ? "#fa8c16" : "#cf1322" }}
+                  />
+                </Col>
+                <Col span={6}>
+                  <Statistic
+                    title="Điểm trung bình"
+                    value={avgScore}
+                    suffix="/ 10"
+                    valueStyle={{ color: "#36797f" }}
+                  />
+                </Col>
+              </Row>
+            );
+          })()}
         </Card>
 
         {/* Score Table by Subject */}
-        <Card 
+        <Card
           title={
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <span>Bảng điểm chi tiết</span>
               <Space>
-                <Button icon={<PrinterOutlined />} onClick={handlePrintScoreTable}>
+                <Button size="small" icon={<PrinterOutlined />} onClick={() => handlePrint()}>
                   In bảng điểm
                 </Button>
-                <Button icon={<DownloadOutlined />} onClick={handleExportScoreTable}>
+                <Button size="small" icon={<DownloadOutlined />} onClick={() => handleExportExcel()}>
                   Xuất Excel
                 </Button>
               </Space>
@@ -1899,7 +2022,7 @@ const StudentReport = ({
         >
           {(() => {
             // Filter sessions by selected month
-            const sessionsToShow = viewMode === "monthly" && selectedMonth
+            const sessionsToShow = selectedMonth
               ? studentSessions.filter((session) => {
                   const sessionDate = dayjs(session["Ngày"]);
                   return (
@@ -1920,8 +2043,8 @@ const StudentReport = ({
             });
 
             // Get scores from Điểm_tự_nhập for selected month
-            const allCustomScores = getCustomScoresForStudent(student.id);
-            const monthScoresFiltered = viewMode === "monthly" && selectedMonth
+            const allCustomScores = getAllScoresForStudent(student.id);
+            const monthScoresFiltered = selectedMonth
               ? allCustomScores.filter((s) => {
                   if (!s.date) return false;
                   const scoreDate = dayjs(s.date);

@@ -30,6 +30,7 @@ import {
   BookOutlined,
   UserOutlined,
   DownOutlined,
+  UndoOutlined,
 } from "@ant-design/icons";
 import { ref, onValue, update } from "firebase/database";
 import { database } from "../../firebase";
@@ -395,6 +396,27 @@ const AdminMonthlyReportReview = () => {
     }
   };
 
+  // Xóa duyệt - Reset báo cáo đã approved về trạng thái draft để giáo viên sửa lại
+  const handleRevokeApproval = async (comment: MonthlyComment) => {
+    try {
+      await update(ref(database, `datasheet/Nhận_xét_tháng/${comment.id}`), {
+        status: "draft",
+        revokedAt: new Date().toISOString(),
+        revokedBy: userProfile?.email || "",
+        // Clear approval info
+        approvedAt: null,
+        approvedBy: null,
+        // Clear submission info to allow re-edit
+        submittedAt: null,
+        submittedBy: null,
+      });
+      message.success("Đã xóa duyệt! Giáo viên có thể chỉnh sửa lại nhận xét.");
+    } catch (error) {
+      console.error("Error revoking approval:", error);
+      message.error("Có lỗi khi xóa duyệt");
+    }
+  };
+
   // Print
   const handlePrint = (comment: MonthlyComment) => {
     setSelectedComment(comment);
@@ -428,21 +450,46 @@ const AdminMonthlyReportReview = () => {
       })
       .sort((a, b) => new Date(a["Ngày"]).getTime() - new Date(b["Ngày"]).getTime());
 
-    // Get all scores from Điểm_tự_nhập
+    // Get scores từ cả 2 nguồn: Điểm_tự_nhập VÀ Điểm kiểm tra trong attendance sessions
     let allCustomScores: Array<{ date: string; testName: string; score: number; classId: string }> = [];
+    
+    // 1. Lấy điểm từ Điểm_tự_nhập
     classIds.forEach((classId) => {
       const classScoresArr = getCustomScoresForClass(comment.studentId, classId, monthStr);
       classScoresArr.forEach((s) => {
         allCustomScores.push({ ...s, classId });
       });
     });
+    
+    // 2. Lấy điểm từ attendance sessions (Điểm kiểm tra)
+    allStudentSessions.forEach((session) => {
+      const record = session["Điểm danh"]?.find((r) => r["Student ID"] === comment.studentId);
+      if (record) {
+        const scoreValue = record["Điểm kiểm tra"] ?? record["Điểm"];
+        if (scoreValue !== undefined && scoreValue !== null && !isNaN(Number(scoreValue))) {
+          const sessionDate = dayjs(session["Ngày"]).format("YYYY-MM-DD");
+          // Tránh trùng lặp: chỉ thêm nếu chưa có điểm cùng ngày và cùng lớp trong Điểm_tự_nhập
+          const existsInCustom = allCustomScores.some(
+            (s) => s.date === sessionDate && s.classId === session["Class ID"]
+          );
+          if (!existsInCustom) {
+            allCustomScores.push({
+              date: sessionDate,
+              testName: "Điểm buổi học",
+              score: Number(scoreValue),
+              classId: session["Class ID"],
+            });
+          }
+        }
+      }
+    });
 
-    // Tính điểm trung bình từ Điểm_tự_nhập
+    // Tính điểm trung bình từ tất cả nguồn điểm
     const recalculatedAvgScore = allCustomScores.length > 0
       ? allCustomScores.reduce((sum, s) => sum + s.score, 0) / allCustomScores.length
       : 0;
 
-    // Generate BẢNG ĐIỂM THEO MÔN - đọc từ Điểm_tự_nhập
+    // Generate BẢNG ĐIỂM THEO MÔN - đọc từ cả Điểm_tự_nhập và Điểm kiểm tra
     let scoreTablesHTML = "";
     let hasAnyScoreInAnyClass = false;
     
@@ -454,21 +501,42 @@ const AdminMonthlyReportReview = () => {
       
       // Build a map of date -> scores (multiple scores per date supported)
       const scoresByDate: { [date: string]: Array<{ testName: string; score: number }> } = {};
+      
+      // 1. Add scores from Điểm_tự_nhập
       classScoresFromDB.forEach((s) => {
-        // Use full YYYY-MM-DD for reliable matching
         const dateKey = s.date; // Already in YYYY-MM-DD format
         if (!scoresByDate[dateKey]) {
           scoresByDate[dateKey] = [];
         }
         scoresByDate[dateKey].push({ testName: s.testName, score: s.score });
       });
+      
+      // 2. Add scores from attendance sessions (Điểm kiểm tra) - nếu chưa có điểm cho ngày đó
+      classSessions.forEach((session) => {
+        const record = session["Điểm danh"]?.find((r) => r["Student ID"] === comment.studentId);
+        if (record) {
+          const scoreValue = record["Điểm kiểm tra"] ?? record["Điểm"];
+          if (scoreValue !== undefined && scoreValue !== null && !isNaN(Number(scoreValue))) {
+            const sessionDate = dayjs(session["Ngày"]).format("YYYY-MM-DD");
+            // Nếu đã có điểm từ Điểm_tự_nhập cho ngày này, không thêm nữa
+            if (!scoresByDate[sessionDate]) {
+              scoresByDate[sessionDate] = [];
+            }
+            // Chỉ thêm nếu chưa có điểm nào cho ngày này
+            if (scoresByDate[sessionDate].length === 0) {
+              scoresByDate[sessionDate].push({ testName: "Điểm buổi học", score: Number(scoreValue) });
+            }
+          }
+        }
+      });
 
-      // Calculate class average from custom scores
-      const classAvg = classScoresFromDB.length > 0
-        ? classScoresFromDB.reduce((sum, s) => sum + s.score, 0) / classScoresFromDB.length
+      // Calculate class average from all scores (both sources)
+      const allClassScores = Object.values(scoresByDate).flat();
+      const classAvg = allClassScores.length > 0
+        ? allClassScores.reduce((sum, s) => sum + s.score, 0) / allClassScores.length
         : 0;
 
-      if (classScoresFromDB.length > 0) {
+      if (allClassScores.length > 0) {
         hasAnyScoreInAnyClass = true;
       }
 
@@ -479,7 +547,7 @@ const AdminMonthlyReportReview = () => {
           const sessionDate = dayjs(session["Ngày"]).format("YYYY-MM-DD"); // Full date for matching
           const displayDate = dayjs(session["Ngày"]).format("DD/MM"); // Display format
           
-          // Get scores from Điểm_tự_nhập for this date (supports multiple scores per day)
+          // Get scores for this date (from both sources)
           const dateScores = scoresByDate[sessionDate] || [];
           
           // CHỈ HIỂN THỊ NHỮNG NGÀY CÓ ĐIỂM - ẩn các ngày không có điểm
@@ -1068,6 +1136,24 @@ const AdminMonthlyReportReview = () => {
                 Từ chối
               </Button>
             </>
+          )}
+          {record.status === "approved" && (
+            <Popconfirm
+              title="Xóa duyệt báo cáo này?"
+              description="Báo cáo sẽ chuyển về trạng thái nháp để giáo viên có thể chỉnh sửa lại."
+              onConfirm={() => handleRevokeApproval(record)}
+              okText="Xác nhận"
+              cancelText="Hủy"
+              okButtonProps={{ danger: true }}
+            >
+              <Button
+                size="small"
+                danger
+                icon={<UndoOutlined />}
+              >
+                Xóa duyệt
+              </Button>
+            </Popconfirm>
           )}
         </Space>
       ),
