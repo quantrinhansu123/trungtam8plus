@@ -594,7 +594,15 @@ const AttendanceSessionPage = () => {
       setLoadingSession(false);
     }, { onlyOnce: true }); // Chỉ load một lần
 
-    // Load students - chỉ load một lần
+    return () => {
+      unsubscribeSession();
+    };
+  }, [classData, navigate, sessionDate]); // Bỏ existingSession khỏi dependency
+
+  // Load students - tách riêng để có thể dùng existingSession state
+  useEffect(() => {
+    if (!classData) return;
+    
     const studentsRef = ref(database, "datasheet/Danh_sách_học_sinh");
     const unsubscribeStudents = onValue(studentsRef, (snapshot) => {
       const data = snapshot.val();
@@ -604,16 +612,19 @@ const AttendanceSessionPage = () => {
           ...(value as Omit<Student, "id">),
         }));
 
-        // Filter students by enrollment date - hiển thị học sinh đã đăng ký trước hoặc trong ngày session
+        // Filter students by enrollment date
         const enrollments = classData["Student Enrollments"] || {};
         const classStudents = allStudents
           .filter((s) => {
             if (!classData["Student IDs"]?.includes(s.id)) return false;
             
-            // If no enrollment date recorded, show the student (backward compatibility)
+            // Nếu đang xem/sửa session cũ (existingSession exists), hiển thị TẤT CẢ học sinh hiện tại của lớp
+            // để có thể thêm học sinh mới vào điểm danh
+            if (existingSession) return true;
+            
+            // Nếu tạo mới session, chỉ hiển thị học sinh đã đăng ký trước hoặc trong ngày session
             if (!enrollments[s.id]) return true;
             
-            // Hiển thị nếu học sinh đã đăng ký trước hoặc trong ngày session (đăng ký ngày 27 thì điểm danh được ngày 27)
             const enrollmentDate = enrollments[s.id].enrollmentDate;
             return enrollmentDate <= sessionDate;
           })
@@ -633,10 +644,9 @@ const AttendanceSessionPage = () => {
     }, { onlyOnce: true }); // Chỉ load một lần
 
     return () => {
-      unsubscribeSession();
       unsubscribeStudents();
     };
-  }, [classData, navigate, sessionDate]); // Bỏ existingSession khỏi dependency
+  }, [classData, sessionDate, existingSession]); // Thêm existingSession để reload students khi có session
 
   // Bug 9: Load bài tập buổi trước
   useEffect(() => {
@@ -803,6 +813,34 @@ const AttendanceSessionPage = () => {
       );
     }
   }, [students, existingSession, attendanceRecords.length]);
+
+  // Merge học sinh mới vào attendanceRecords khi có existingSession và students thay đổi
+  // Đảm bảo học sinh mới thêm vào lớp sau khi điểm danh vẫn xuất hiện trong danh sách
+  useEffect(() => {
+    if (students.length > 0 && existingSession) {
+      setAttendanceRecords(prev => {
+        // Nếu chưa có records, không làm gì (sẽ được khởi tạo từ existingSession)
+        if (prev.length === 0) return prev;
+        
+        const existingStudentIds = new Set(prev.map(r => r["Student ID"]));
+        const newStudents = students.filter(s => !existingStudentIds.has(s.id));
+        
+        if (newStudents.length > 0) {
+          console.log(`🆕 Adding ${newStudents.length} new students to attendance:`, newStudents.map(s => s["Họ và tên"]));
+          const newRecords = newStudents.map((s) => ({
+            "Student ID": s.id,
+            "Tên học sinh": s["Họ và tên"],
+            "Có mặt": false,
+            "Ghi chú": "",
+          }));
+          
+          return [...prev, ...newRecords];
+        }
+        
+        return prev;
+      });
+    }
+  }, [students, existingSession]); // Theo dõi students array
 
   // Kiểm tra xem đã quá deadline sửa điểm danh chưa
   // Deadline MỚI: Khi đã có báo cáo tháng (submitted/approved) cho lớp này trong tháng của buổi điểm danh
