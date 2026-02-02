@@ -2286,22 +2286,7 @@ const InvoicePage = () => {
                   });
                 });
 
-                // Add edit hint
-                const hint = document.createElement('div');
-                hint.innerHTML = '<i class="fas fa-edit"></i> Có thể chỉnh sửa trực tiếp - tự động lưu';
-                hint.style.cssText = \`
-                  position: fixed;
-                  bottom: 10px;
-                  left: 10px;
-                  background: rgba(0,0,0,0.7);
-                  color: white;
-                  padding: 6px 12px;
-                  border-radius: 20px;
-                  font-size: 11px;
-                  z-index: 9999;
-                  opacity: 0.8;
-                \`;
-                document.body.appendChild(hint);
+                // Edit hint removed per UX request
               });
           </script>
           </style>
