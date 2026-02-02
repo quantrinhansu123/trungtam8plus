@@ -345,7 +345,7 @@ const ClassSessionHistory = () => {
           const record = session["Điểm danh"]?.find((r: any) => r["Student ID"] === report.studentId);
           if (record) {
             totalSessions++;
-            if (record["Có mặt"] === true || record["Vắng có phép"] === true) {
+            if (record["Có mặt"] === true) {
               presentSessions++;
             } else {
               absentSessions++;

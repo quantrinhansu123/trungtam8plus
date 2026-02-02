@@ -361,7 +361,7 @@ const AttendanceSessionPage = () => {
         classId: currentClassId,
         month: targetMonth + 1,
         year: targetYear,
-        studentsProcessed: currentAttendanceRecords.filter(r => r["Có mặt"] || r["Vắng có phép"]).length,
+        studentsProcessed: currentAttendanceRecords.filter(r => r["Có mặt"] === true).length,
         invoicesCreatedOrUpdated: upsertPromises.length,
       });
     } catch (error) {
@@ -430,7 +430,7 @@ const AttendanceSessionPage = () => {
           const record = session["Điểm danh"]?.find((r: any) => r["Student ID"] === report.studentId);
           if (record) {
             totalSessions++;
-            if (record["Có mặt"] === true || record["Vắng có phép"] === true) {
+            if (record["Có mặt"] === true) {
               presentSessions++;
             } else {
               absentSessions++;

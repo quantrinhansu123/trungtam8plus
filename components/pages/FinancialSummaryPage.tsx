@@ -611,9 +611,9 @@ const FinancialSummaryPage = () => {
       attendanceRecords.forEach((record: any) => {
         const studentId = record["Student ID"];
         const isPresent = record["Có mặt"] === true || record["Có mặt"] === "true";
-        const isExcused = record["Vắng có phép"] === true || record["Vắng có phép"] === "true";
         
-        if (studentId && (isPresent || isExcused)) {
+        // Chỉ tính học sinh có mặt thực sự, không tính vắng có phép
+        if (studentId && isPresent) {
           attendedStudents.add(studentId);
         }
       });
@@ -660,8 +660,8 @@ const FinancialSummaryPage = () => {
           const hasAttended = attendanceRecords.some((record: any) => {
             const recordStudentId = record["Student ID"];
             const isPresent = record["Có mặt"] === true || record["Có mặt"] === "true";
-            const isExcused = record["Vắng có phép"] === true || record["Vắng có phép"] === "true";
-            return recordStudentId === studentId && (isPresent || isExcused);
+            // Chỉ tính học sinh có mặt thực sự
+            return recordStudentId === studentId && isPresent;
           });
           
           if (hasAttended) {
@@ -814,10 +814,9 @@ const FinancialSummaryPage = () => {
         attendanceRecords.forEach((record: any) => {
           const studentId = record["Student ID"];
           const isPresent = record["Có mặt"] === true || record["Có mặt"] === "true";
-          const isExcused = record["Vắng có phép"] === true || record["Vắng có phép"] === "true";
 
-          // Only create invoice for students who are present or excused
-          if (!studentId || (!isPresent && !isExcused)) return;
+          // Chỉ tạo hóa đơn cho học sinh có mặt thực sự (không tính vắng có phép)
+          if (!studentId || !isPresent) return;
 
           const student = students.find(s => s.id === studentId);
           if (!student) return;

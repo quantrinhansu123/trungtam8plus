@@ -2524,7 +2524,7 @@ const AdminSchedule = () => {
                                       const rec = session["Điểm danh"]?.find((r: any) => r["Student ID"] === report.studentId);
                                       if (rec) {
                                         totalSessions++;
-                                        if (rec["Có mặt"] === true || rec["Vắng có phép"] === true) {
+                                        if (rec["Có mặt"] === true) {
                                           presentSessions++;
                                         } else {
                                           absentSessions++;
