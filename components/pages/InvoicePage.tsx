@@ -3399,7 +3399,7 @@ const InvoicePage = () => {
         key: "totalDebt",
         width: 140,
         render: (_: any, record: GroupedStudentInvoice) => {
-          // Đọc debt từ database
+          // Đọc debt từ database (Nợ học phí)
           let debt = 0;
           record.invoices.forEach((inv) => {
             const invoiceData = studentInvoiceStatus[inv.id];
@@ -3411,8 +3411,13 @@ const InvoicePage = () => {
           if (debt === 0) {
             debt = calculateStudentTotalDebt(record.studentId, record.month, record.year);
           }
-          // Tổng nợ lũy kế = Phải thu (thành tiền) + Nợ cũ
-          const thanhTien = record.status === "unpaid" ? record.finalAmount : 0;
+          // Tính Thành tiền theo công thức mới: (Số buổi × Đơn giá) - Miễn giảm
+          const student = students.find((s) => s.id === record.studentId);
+          const unitPrice = student?.hoc_phi_rieng || 0;
+          const thanhTien = record.status === "unpaid" 
+            ? Math.max(0, (record.totalSessions * unitPrice) - record.discount)
+            : 0;
+          // Tổng nợ lũy kế = Thành tiền + Nợ học phí
           const combinedDebt = thanhTien + debt;
           return (
             <Text strong style={{ color: combinedDebt > 0 ? "#ff4d4f" : "#52c41a", fontSize: "14px" }}>
@@ -3636,9 +3641,16 @@ const InvoicePage = () => {
         key: "totalDebt",
         width: 140,
         render: (_: any, record: StudentInvoice) => {
+          // Nợ học phí (từ các tháng trước)
           const totalDebt = calculateStudentTotalDebt(record.studentId, record.month, record.year);
-          const currentDebt = record.status === "unpaid" ? record.finalAmount : 0;
-          const combinedDebt = totalDebt + currentDebt;
+          // Tính Thành tiền theo công thức mới: (Số buổi × Đơn giá) - Miễn giảm
+          const student = students.find((s) => s.id === record.studentId);
+          const unitPrice = student?.hoc_phi_rieng || 0;
+          const thanhTien = record.status === "unpaid"
+            ? Math.max(0, (record.totalSessions * unitPrice) - record.discount)
+            : 0;
+          // Tổng nợ lũy kế = Thành tiền + Nợ học phí
+          const combinedDebt = thanhTien + totalDebt;
           return (
             <Text strong style={{ color: combinedDebt > 0 ? "#ff4d4f" : "#52c41a", fontSize: "14px" }}>
               {combinedDebt.toLocaleString("vi-VN")} đ
@@ -4777,8 +4789,12 @@ const InvoicePage = () => {
               </div>
 
               {(() => {
-                const totalAmount = totalBySubject.reduce((sum, item) => sum + (item.total || 0), 0);
-                const thanhTien = Math.max(0, totalAmount - editDiscount);
+                // Tính Thành tiền theo công thức mới: (Số buổi × Đơn giá) - Miễn giảm
+                const student = students.find((s) => s.id === editingInvoice.studentId);
+                const unitPrice = student?.hoc_phi_rieng || 0;
+                const totalSessions = editingInvoice.sessions.length;
+                const thanhTien = Math.max(0, (totalSessions * unitPrice) - editDiscount);
+                // Tổng nợ lũy kế = Thành tiền + Nợ học phí
                 const tongNoLuyKe = thanhTien + editDebt;
                 
                 return (
@@ -4796,7 +4812,7 @@ const InvoicePage = () => {
                         {tongNoLuyKe.toLocaleString("vi-VN")} đ
                       </Text>
                       <Text style={{ display: "block", fontSize: 12, color: "#999", marginTop: 4 }}>
-                        = Phải thu ({thanhTien.toLocaleString("vi-VN")}) + Nợ cũ ({editDebt.toLocaleString("vi-VN")})
+                        = Thành tiền ({thanhTien.toLocaleString("vi-VN")} đ) + Nợ học phí ({editDebt.toLocaleString("vi-VN")} đ)
                       </Text>
                     </div>
                   </>
