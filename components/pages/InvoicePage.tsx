@@ -3312,7 +3312,7 @@ const InvoicePage = () => {
         align: "center" as const,
       },
       {
-        title: "Đơn giá",
+        title: "Học phí riêng",
         key: "unitPrice",
         width: 150,
         render: (_: any, record: GroupedStudentInvoice) => {
@@ -3573,7 +3573,7 @@ const InvoicePage = () => {
         align: "center" as const,
       },
       {
-        title: "Đơn giá",
+        title: "Học phí riêng",
         key: "unitPrice",
         width: 130,
         render: (_: any, record: StudentInvoice) => {
