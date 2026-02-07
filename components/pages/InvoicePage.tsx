@@ -494,21 +494,27 @@ const InvoicePage = () => {
         if (classInfo) {
           subject = classInfo["Môn học"] || "";
 
-          // Get price from course
-          const course = courses.find((c) => {
-            if (c.Khối !== classInfo.Khối) return false;
-            const classSubject = classInfo["Môn học"];
-            const courseSubject = c["Môn học"];
-            if (classSubject === courseSubject) return true;
-            const subjectOption = subjectOptions.find(
-              (opt) => opt.label === classSubject || opt.value === classSubject
-            );
-            if (subjectOption) {
-              return courseSubject === subjectOption.label || courseSubject === subjectOption.value;
-            }
-            return false;
-          });
-          pricePerSession = course?.Giá || classInfo?.["Học phí mỗi buổi"] || 0;
+          // Priority 1: Use student's hoc_phi_rieng if available
+          const student = students.find((s) => s.id === studentId);
+          if (student && student["hoc_phi_rieng"]) {
+            pricePerSession = student["hoc_phi_rieng"];
+          } else {
+            // Priority 2: Get price from course or class
+            const course = courses.find((c) => {
+              if (c.Khối !== classInfo.Khối) return false;
+              const classSubject = classInfo["Môn học"];
+              const courseSubject = c["Môn học"];
+              if (classSubject === courseSubject) return true;
+              const subjectOption = subjectOptions.find(
+                (opt) => opt.label === classSubject || opt.value === classSubject
+              );
+              if (subjectOption) {
+                return courseSubject === subjectOption.label || courseSubject === subjectOption.value;
+              }
+              return false;
+            });
+            pricePerSession = classInfo?.["Học phí mỗi buổi"] || course?.Giá || 0;
+          }
         }
       }
 
@@ -1118,12 +1124,22 @@ const InvoicePage = () => {
   };
 
   // Helper function to get price for a session
-  const getSessionPrice = (session: AttendanceSession): number => {
+  const getSessionPrice = (session: AttendanceSession, studentId?: string): number => {
+    // Priority 1: Use student's hoc_phi_rieng if available
+    if (studentId) {
+      const student = students.find((s) => s.id === studentId);
+      if (student && student["hoc_phi_rieng"]) {
+        return student["hoc_phi_rieng"];
+      }
+    }
+
+    // Priority 2: Use class tuition fee
     const classId = session["Class ID"];
     const classInfo = classes.find((c) => c.id === classId);
 
     if (!classInfo) return 0;
 
+    // Priority 3: Use course price
     const course = courses.find((c) => {
       if (c.Khối !== classInfo.Khối) return false;
       const classSubject = classInfo["Môn học"];
@@ -1138,7 +1154,7 @@ const InvoicePage = () => {
       return false;
     });
 
-    return course?.Giá || classInfo?.["Học phí mỗi buổi"] || 0;
+    return classInfo?.["Học phí mỗi buổi"] || course?.Giá || 0;
   };
 
   // Update invoice with custom session prices
@@ -1696,28 +1712,34 @@ const InvoicePage = () => {
         );
       if (!present) return;
 
-      // Find class/course price
-      const classId = session["Class ID"];
-      const classInfo = classes.find((c) => c.id === classId);
+      // Priority 1: Use student's hoc_phi_rieng if available
+      const student = students.find((s) => s.id === studentId);
       let pricePerSession = 0;
-      if (classInfo) {
-        const course = courses.find((c) => {
-          if (c.Khối !== classInfo.Khối) return false;
-          const classSubject = classInfo["Môn học"];
-          const courseSubject = c["Môn học"];
-          if (classSubject === courseSubject) return true;
-          const subjectOption = subjectOptions.find(
-            (opt) => opt.label === classSubject || opt.value === classSubject
-          );
-          if (subjectOption) {
-            return (
-              courseSubject === subjectOption.label ||
-              courseSubject === subjectOption.value
+      if (student && student["hoc_phi_rieng"]) {
+        pricePerSession = student["hoc_phi_rieng"];
+      } else {
+        // Priority 2: Find class/course price
+        const classId = session["Class ID"];
+        const classInfo = classes.find((c) => c.id === classId);
+        if (classInfo) {
+          const course = courses.find((c) => {
+            if (c.Khối !== classInfo.Khối) return false;
+            const classSubject = classInfo["Môn học"];
+            const courseSubject = c["Môn học"];
+            if (classSubject === courseSubject) return true;
+            const subjectOption = subjectOptions.find(
+              (opt) => opt.label === classSubject || opt.value === classSubject
             );
-          }
-          return false;
-        });
-        pricePerSession = course?.Giá || 0;
+            if (subjectOption) {
+              return (
+                courseSubject === subjectOption.label ||
+                courseSubject === subjectOption.value
+              );
+            }
+            return false;
+          });
+          pricePerSession = classInfo?.["Học phí mỗi buổi"] || course?.Giá || 0;
+        }
       }
 
       // Check if there's a persisted invoice for this month and it's paid
@@ -1844,10 +1866,10 @@ const InvoicePage = () => {
       const subject = classInfo?.["Môn học"] || "N/A";
 
       // Get the actual price for this session.
-      // Preference order: stored invoice session price (may be sanitized key) -> session/course/class default -> invoice average
+      // Preference order: stored invoice session price (may be sanitized key) -> student hoc_phi_rieng -> session/course/class default -> invoice average
       let pricePerSession =
         Number(getSafeField(session, "Giá/buổi")) ||
-        getSessionPrice(session) ||
+        getSessionPrice(session, invoice.studentId) ||
         invoice.pricePerSession ||
         (invoice.totalSessions > 0 ? invoice.totalAmount / invoice.totalSessions : 0);
 
@@ -1967,28 +1989,34 @@ const InvoicePage = () => {
           );
         if (!present) return;
 
-        // find class/course price
-        const classId = session["Class ID"];
-        const classInfo = classes.find((c) => c.id === classId);
+        // Priority 1: Use student's hoc_phi_rieng if available
+        const student = students.find((s) => s.id === invoice.studentId);
         let pricePerSession = 0;
-        if (classInfo) {
-          const course = courses.find((c) => {
-            if (c.Khối !== classInfo.Khối) return false;
-            const classSubject = classInfo["Môn học"];
-            const courseSubject = c["Môn học"];
-            if (classSubject === courseSubject) return true;
-            const subjectOption = subjectOptions.find(
-              (opt) => opt.label === classSubject || opt.value === classSubject
-            );
-            if (subjectOption) {
-              return (
-                courseSubject === subjectOption.label ||
-                courseSubject === subjectOption.value
+        if (student && student["hoc_phi_rieng"]) {
+          pricePerSession = student["hoc_phi_rieng"];
+        } else {
+          // Priority 2: find class/course price
+          const classId = session["Class ID"];
+          const classInfo = classes.find((c) => c.id === classId);
+          if (classInfo) {
+            const course = courses.find((c) => {
+              if (c.Khối !== classInfo.Khối) return false;
+              const classSubject = classInfo["Môn học"];
+              const courseSubject = c["Môn học"];
+              if (classSubject === courseSubject) return true;
+              const subjectOption = subjectOptions.find(
+                (opt) => opt.label === classSubject || opt.value === classSubject
               );
-            }
-            return false;
-          });
-          pricePerSession = course?.Giá || 0;
+              if (subjectOption) {
+                return (
+                  courseSubject === subjectOption.label ||
+                  courseSubject === subjectOption.value
+                );
+              }
+              return false;
+            });
+            pricePerSession = classInfo?.["Học phí mỗi buổi"] || course?.Giá || 0;
+          }
         }
 
         const mapKey = `${sYear}-${sMonth}`;
@@ -3073,30 +3101,37 @@ const InvoicePage = () => {
         const subject = classInfo?.["Môn học"] || "N/A";
         const key = `${classCode}-${className}-${subject}`;
 
-        // Find course using Khối and Môn học from class info
-        const course = classInfo
-          ? courses.find((c) => {
-            if (c.Khối !== classInfo.Khối) return false;
-            const classSubject = classInfo["Môn học"];
-            const courseSubject = c["Môn học"];
-            // Direct match
-            if (classSubject === courseSubject) return true;
-            // Try matching with subject options (label <-> value)
-            const subjectOption = subjectOptions.find(
-              (opt) =>
-                opt.label === classSubject || opt.value === classSubject
-            );
-            if (subjectOption) {
-              return (
-                courseSubject === subjectOption.label ||
-                courseSubject === subjectOption.value
+        // Priority 1: Use student's hoc_phi_rieng if available
+        const student = students.find((s) => s.id === record.studentId);
+        let pricePerSession = 0;
+        if (student && student["hoc_phi_rieng"]) {
+          pricePerSession = student["hoc_phi_rieng"];
+        } else {
+          // Priority 2: Find course using Khối and Môn học from class info
+          const course = classInfo
+            ? courses.find((c) => {
+              if (c.Khối !== classInfo.Khối) return false;
+              const classSubject = classInfo["Môn học"];
+              const courseSubject = c["Môn học"];
+              // Direct match
+              if (classSubject === courseSubject) return true;
+              // Try matching with subject options (label <-> value)
+              const subjectOption = subjectOptions.find(
+                (opt) =>
+                  opt.label === classSubject || opt.value === classSubject
               );
-            }
-            return false;
-          })
-          : undefined;
+              if (subjectOption) {
+                return (
+                  courseSubject === subjectOption.label ||
+                  courseSubject === subjectOption.value
+                );
+              }
+              return false;
+            })
+            : undefined;
 
-        const pricePerSession = course?.Giá || 0;
+          pricePerSession = classInfo?.["Học phí mỗi buổi"] || course?.Giá || 0;
+        }
 
         if (!classSummary[key]) {
           classSummary[key] = {
@@ -3269,15 +3304,18 @@ const InvoicePage = () => {
         align: "center" as const,
       },
       {
-        title: "Tổng tiền",
-        dataIndex: "totalAmount",
-        key: "totalAmount",
+        title: "Đơn giá",
+        key: "unitPrice",
         width: 150,
-        render: (_: any, record: GroupedStudentInvoice) => (
-          <Text style={{ fontSize: 14 }}>
-            {record.totalAmount.toLocaleString("vi-VN")} đ
-          </Text>
-        ),
+        render: (_: any, record: GroupedStudentInvoice) => {
+          const student = students.find((s) => s.id === record.studentId);
+          const unitPrice = student?.hoc_phi_rieng || 0;
+          return (
+            <Text style={{ fontSize: 14 }}>
+              {unitPrice.toLocaleString("vi-VN")} đ
+            </Text>
+          );
+        },
       },
       {
         title: "Miễn giảm",
@@ -3473,7 +3511,7 @@ const InvoicePage = () => {
         },
       },
     ],
-    [viewStudentInvoice, updateStudentDiscount, updateStudentInvoiceStatus, handleDeleteInvoice, setEditingInvoice, setEditSessionPrices, setEditDiscount, setEditInvoiceModalOpen, mergeStudentInvoices, classes, studentInvoiceStatus, calculateStudentTotalDebt]
+    [viewStudentInvoice, updateStudentDiscount, updateStudentInvoiceStatus, handleDeleteInvoice, setEditingInvoice, setEditSessionPrices, setEditDiscount, setEditInvoiceModalOpen, mergeStudentInvoices, classes, studentInvoiceStatus, calculateStudentTotalDebt, students]
   );
 
   // Paid student invoice columns (flat, not grouped)
@@ -3517,15 +3555,18 @@ const InvoicePage = () => {
         align: "center" as const,
       },
       {
-        title: "Tổng tiền",
-        dataIndex: "totalAmount",
-        key: "totalAmount",
+        title: "Đơn giá",
+        key: "unitPrice",
         width: 130,
-        render: (amount: number) => (
-          <Text style={{ color: "#36797f" }}>
-            {amount.toLocaleString("vi-VN")} đ
-          </Text>
-        ),
+        render: (_: any, record: StudentInvoice) => {
+          const student = students.find((s) => s.id === record.studentId);
+          const unitPrice = student?.hoc_phi_rieng || 0;
+          return (
+            <Text style={{ color: "#36797f" }}>
+              {unitPrice.toLocaleString("vi-VN")} đ
+            </Text>
+          );
+        },
       },
       {
         title: "Miễn giảm",
@@ -3618,7 +3659,7 @@ const InvoicePage = () => {
         ),
       },
     ],
-    [viewStudentInvoice, handleRevertToUnpaid]
+    [viewStudentInvoice, handleRevertToUnpaid, students]
   );
 
   // Columns for expanded row (class details)
