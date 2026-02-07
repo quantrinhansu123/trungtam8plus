@@ -1078,9 +1078,12 @@ const InvoicePage = () => {
           0,
           Math.round((invoice.totalAmount || 0) * factor)
         );
+        // Calculate finalAmount: Thành tiền = (Số buổi × Đơn giá) - Miễn giảm
+        const student = students.find((s) => s.id === invoice.studentId);
+        const unitPrice = student?.hoc_phi_rieng || 0;
         const newFinal = Math.max(
           0,
-          Math.round(newInvoiceTotal - (invoice.discount || 0))
+          Math.round((invoice.totalSessions * unitPrice) - (invoice.discount || 0))
         );
         const invoiceRef = ref(
           database,
@@ -1195,7 +1198,10 @@ const InvoicePage = () => {
 
       // Calculate new total from sessionsToUse
       const newTotalAmount = sessionsToUse.reduce((sum, s) => sum + (Number(getSafeField(s, "Giá/buổi") || 0)), 0);
-      const newFinalAmount = Math.max(0, newTotalAmount - discount);
+      // Calculate finalAmount: Thành tiền = (Số buổi × Đơn giá) - Miễn giảm
+      const student = students.find((s) => s.id === currentInvoice.studentId);
+      const unitPrice = student?.hoc_phi_rieng || 0;
+      const newFinalAmount = Math.max(0, (sessionsToUse.length * unitPrice) - discount);
 
       const invoiceRef = ref(database, `datasheet/Phiếu_thu_học_phí/${invoiceId}`);
 
@@ -1257,8 +1263,10 @@ const InvoicePage = () => {
         return;
       }
 
-      // Calculate new finalAmount
-      const finalAmount = Math.max(0, invoice.totalAmount - discount);
+      // Calculate new finalAmount: Thành tiền = (Số buổi × Đơn giá) - Miễn giảm
+      const student = students.find((s) => s.id === invoice.studentId);
+      const unitPrice = student?.hoc_phi_rieng || 0;
+      const finalAmount = Math.max(0, (invoice.totalSessions * unitPrice) - discount);
 
       const invoiceRef = ref(
         database,
@@ -3350,11 +3358,16 @@ const InvoicePage = () => {
         title: "Thành tiền",
         key: "finalAmount",
         width: 130,
-        render: (_: any, record: GroupedStudentInvoice) => (
-          <Text strong style={{ color: "#1890ff", fontSize: "14px" }}>
-            {record.finalAmount.toLocaleString("vi-VN")} đ
-          </Text>
-        ),
+        render: (_: any, record: GroupedStudentInvoice) => {
+          const student = students.find((s) => s.id === record.studentId);
+          const unitPrice = student?.hoc_phi_rieng || 0;
+          const finalAmount = Math.max(0, (record.totalSessions * unitPrice) - record.discount);
+          return (
+            <Text strong style={{ color: "#1890ff", fontSize: "14px" }}>
+              {finalAmount.toLocaleString("vi-VN")} đ
+            </Text>
+          );
+        },
       },
       {
         title: "Nợ học phí",
@@ -3581,11 +3594,16 @@ const InvoicePage = () => {
         title: "Thành tiền",
         key: "finalAmount",
         width: 130,
-        render: (_: any, record: StudentInvoice) => (
-          <Text strong style={{ color: "#52c41a", fontSize: "14px" }}>
-            {record.finalAmount.toLocaleString("vi-VN")} đ
-          </Text>
-        ),
+        render: (_: any, record: StudentInvoice) => {
+          const student = students.find((s) => s.id === record.studentId);
+          const unitPrice = student?.hoc_phi_rieng || 0;
+          const finalAmount = Math.max(0, (record.totalSessions * unitPrice) - record.discount);
+          return (
+            <Text strong style={{ color: "#52c41a", fontSize: "14px" }}>
+              {finalAmount.toLocaleString("vi-VN")} đ
+            </Text>
+          );
+        },
       },
       {
         title: "Trạng thái",
@@ -3722,11 +3740,16 @@ const InvoicePage = () => {
       title: "Thành tiền",
       key: "finalAmount",
       width: 130,
-      render: (_: any, record: StudentInvoice) => (
-        <Text strong style={{ color: "#1890ff", fontSize: "14px" }}>
-          {record.finalAmount.toLocaleString("vi-VN")} đ
-        </Text>
-      ),
+      render: (_: any, record: StudentInvoice) => {
+        const student = students.find((s) => s.id === record.studentId);
+        const unitPrice = student?.hoc_phi_rieng || 0;
+        const finalAmount = Math.max(0, (record.totalSessions * unitPrice) - record.discount);
+        return (
+          <Text strong style={{ color: "#1890ff", fontSize: "14px" }}>
+            {finalAmount.toLocaleString("vi-VN")} đ
+          </Text>
+        );
+      },
     },
   ];
 
